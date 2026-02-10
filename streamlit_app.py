@@ -1,3 +1,4 @@
+import numpy as np
 import streamlit as st
 import yfinance as yf
 
@@ -60,6 +61,65 @@ def fetch_all_prices():
     except Exception:
         return FALLBACK_PRICES.copy()
     return prices
+
+
+
+@st.cache_data(ttl=300)
+def fetch_market_assumptions():
+    """Fetch market-derived defaults for Kelly assumptions.
+
+    Returns dict with:
+      - risk_free_rate: 13-week T-bill yield (^IRX)
+      - implied_vol: VIX level (^VIX)
+      - realized_vol: trailing 1-year realized volatility of S&P 500
+      - trailing_return: trailing 1-year annualized return of S&P 500
+      - expected_return: risk-free rate + long-run equity risk premium (5.5%)
+    """
+    defaults = {
+        "risk_free_rate": 4.5,
+        "implied_vol": 16.0,
+        "realized_vol": 16.0,
+        "trailing_return": 10.0,
+        "expected_return": 10.0,
+    }
+    try:
+        # Fetch VIX and T-bill yield
+        data = yf.download("^VIX ^IRX", period="5d", progress=False)
+        close = data["Close"]
+
+        # Risk-free rate from 13-week T-bill (^IRX is quoted in %, e.g. 4.5)
+        try:
+            defaults["risk_free_rate"] = round(float(close["^IRX"].dropna().iloc[-1]), 2)
+        except (KeyError, IndexError):
+            pass
+
+        # Implied vol from VIX
+        try:
+            defaults["implied_vol"] = round(float(close["^VIX"].dropna().iloc[-1]), 1)
+        except (KeyError, IndexError):
+            pass
+
+        # Trailing 1-year S&P 500 data for realized vol and return
+        spx = yf.download("^GSPC", period="1y", progress=False)
+        spx_close = spx["Close"]
+        if hasattr(spx_close, "columns"):
+            spx_close = spx_close.iloc[:, 0]
+        if len(spx_close) > 20:
+            daily_returns = spx_close.pct_change().dropna()
+            realized = float(daily_returns.std() * np.sqrt(252) * 100)
+            defaults["realized_vol"] = round(realized, 1)
+
+            total_return = float(spx_close.iloc[-1] / spx_close.iloc[0] - 1)
+            annualized = total_return * (252 / len(daily_returns)) * 100
+            defaults["trailing_return"] = round(annualized, 1)
+
+        # Expected return = risk-free + equity risk premium (long-run ~5.5%)
+        ERP = 5.5
+        defaults["expected_return"] = round(defaults["risk_free_rate"] + ERP, 1)
+
+    except Exception:
+        pass
+    return defaults
 
 
 # Micro futures contract specifications:
@@ -243,32 +303,58 @@ with kelly_input_cols[0]:
 
 with kelly_input_cols[1]:
     st.subheader("Market Assumptions")
+    market = fetch_market_assumptions()
+    st.caption(
+        f"Defaults from live data — T-bill: {market['risk_free_rate']:.2f}%, "
+        f"VIX: {market['implied_vol']:.1f}%, "
+        f"Realized vol: {market['realized_vol']:.1f}%, "
+        f"Trailing S&P return: {market['trailing_return']:.1f}%"
+    )
     expected_return = st.number_input(
         "Expected annual return (%)",
         min_value=0.0,
         max_value=100.0,
-        value=10.0,
+        value=market["expected_return"],
         step=0.5,
         format="%.1f",
-        help="Long-term expected annual return of the portfolio. S&P 500 historical average is ~10%.",
+        help=(
+            f"Default: risk-free ({market['risk_free_rate']:.2f}%) + equity risk premium (5.5%) "
+            f"= {market['expected_return']:.1f}%. "
+            f"Trailing 1-year S&P 500 return: {market['trailing_return']:.1f}%."
+        ),
     )
     risk_free_rate = st.number_input(
         "Risk-free rate (%)",
         min_value=0.0,
         max_value=50.0,
-        value=4.5,
+        value=market["risk_free_rate"],
         step=0.25,
         format="%.2f",
-        help="Current risk-free rate (e.g. T-bill yield).",
+        help="Live default from 13-week T-bill yield (^IRX).",
     )
+    vol_source = st.radio(
+        "Volatility source",
+        ["VIX (implied)", "Realized (trailing 1Y)", "Custom"],
+        help=(
+            f"VIX (implied): {market['implied_vol']:.1f}% — "
+            f"Realized (trailing 1Y): {market['realized_vol']:.1f}%"
+        ),
+        horizontal=True,
+    )
+    if vol_source == "VIX (implied)":
+        default_vol = market["implied_vol"]
+    elif vol_source == "Realized (trailing 1Y)":
+        default_vol = market["realized_vol"]
+    else:
+        default_vol = 16.0
     annual_volatility = st.number_input(
         "Expected annual volatility (%)",
         min_value=0.1,
         max_value=200.0,
-        value=16.0,
+        value=default_vol,
         step=0.5,
         format="%.1f",
-        help="Expected annualized standard deviation. S&P 500 long-term average is ~15-17%.",
+        help="Annualized standard deviation. Override the default from the selected source above.",
     )
 
 # Calculate Kelly
