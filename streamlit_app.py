@@ -206,10 +206,15 @@ with kelly_input_cols[0]:
     )
     exposure_method = st.radio(
         "Exposure method",
-        ["Use total notional from contracts above", "Enter SPX Delta manually"],
+        [
+            "Use total notional from contracts above",
+            "Enter SPX Delta in dollars",
+            "Enter SPX Delta in shares",
+        ],
         help="Choose how to determine your portfolio's dollar exposure.",
     )
-    if exposure_method == "Enter SPX Delta manually":
+    spx_price = live_prices.get("MES", FALLBACK_PRICES["MES"])
+    if exposure_method == "Enter SPX Delta in dollars":
         spx_delta = st.number_input(
             "SPX Beta-Weighted Delta ($)",
             min_value=0.0,
@@ -217,6 +222,20 @@ with kelly_input_cols[0]:
             step=1000.00,
             format="%.2f",
             help="Your portfolio's total dollar delta expressed in SPX-equivalent terms.",
+        )
+    elif exposure_method == "Enter SPX Delta in shares":
+        spx_shares = st.number_input(
+            "SPX Delta (shares)",
+            min_value=0.0,
+            value=0.0,
+            step=1.0,
+            format="%.2f",
+            help="Number of SPX-equivalent shares. Multiplied by the current SPX price to get dollar delta.",
+        )
+        spx_delta = spx_shares * spx_price
+        st.info(
+            f"**{spx_shares:,.2f}** shares x **${spx_price:,.2f}** (SPX) = "
+            f"**${spx_delta:,.2f}** dollar delta"
         )
     else:
         spx_delta = total_notional
