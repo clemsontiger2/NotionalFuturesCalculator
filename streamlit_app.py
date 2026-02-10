@@ -184,6 +184,146 @@ with summary_cols[2]:
 
 st.divider()
 
+# ── Kelly Criterion Leverage Analysis ──
+st.header("Kelly Criterion Leverage Analysis")
+st.write(
+    "The Kelly Criterion determines the optimal leverage ratio that maximizes "
+    "long-term geometric growth of your portfolio. Enter your account details "
+    "and market assumptions below."
+)
+
+kelly_input_cols = st.columns(2)
+
+with kelly_input_cols[0]:
+    st.subheader("Account Inputs")
+    nlv = st.number_input(
+        "Net Liquidation Value ($)",
+        min_value=0.0,
+        value=100000.00,
+        step=1000.00,
+        format="%.2f",
+        help="Your total account equity / net liquidation value.",
+    )
+    exposure_method = st.radio(
+        "Exposure method",
+        ["Use total notional from contracts above", "Enter SPX Delta manually"],
+        help="Choose how to determine your portfolio's dollar exposure.",
+    )
+    if exposure_method == "Enter SPX Delta manually":
+        spx_delta = st.number_input(
+            "SPX Beta-Weighted Delta ($)",
+            min_value=0.0,
+            value=total_notional,
+            step=1000.00,
+            format="%.2f",
+            help="Your portfolio's total dollar delta expressed in SPX-equivalent terms.",
+        )
+    else:
+        spx_delta = total_notional
+        st.info(f"Using total notional from above: **${total_notional:,.2f}**")
+
+with kelly_input_cols[1]:
+    st.subheader("Market Assumptions")
+    expected_return = st.number_input(
+        "Expected annual return (%)",
+        min_value=0.0,
+        max_value=100.0,
+        value=10.0,
+        step=0.5,
+        format="%.1f",
+        help="Long-term expected annual return of the portfolio. S&P 500 historical average is ~10%.",
+    )
+    risk_free_rate = st.number_input(
+        "Risk-free rate (%)",
+        min_value=0.0,
+        max_value=50.0,
+        value=4.5,
+        step=0.25,
+        format="%.2f",
+        help="Current risk-free rate (e.g. T-bill yield).",
+    )
+    annual_volatility = st.number_input(
+        "Expected annual volatility (%)",
+        min_value=0.1,
+        max_value=200.0,
+        value=16.0,
+        step=0.5,
+        format="%.1f",
+        help="Expected annualized standard deviation. S&P 500 long-term average is ~15-17%.",
+    )
+
+# Calculate Kelly
+mu_excess = (expected_return - risk_free_rate) / 100.0
+sigma = annual_volatility / 100.0
+kelly_optimal = mu_excess / (sigma ** 2) if sigma > 0 else 0.0
+half_kelly = kelly_optimal / 2.0
+
+# Current leverage
+current_leverage = spx_delta / nlv if nlv > 0 else 0.0
+
+st.divider()
+
+# Results
+result_cols = st.columns(3)
+with result_cols[0]:
+    st.metric("Full Kelly Leverage", f"{kelly_optimal:.2f}x")
+with result_cols[1]:
+    st.metric("Half Kelly Leverage", f"{half_kelly:.2f}x")
+with result_cols[2]:
+    leverage_delta = current_leverage - kelly_optimal
+    st.metric(
+        "Your Current Leverage",
+        f"{current_leverage:.2f}x",
+        delta=f"{leverage_delta:+.2f}x vs Kelly",
+        delta_color="inverse",
+    )
+
+# Warnings
+if nlv > 0 and current_leverage > 0:
+    if current_leverage > kelly_optimal:
+        st.error(
+            f"**Above Full Kelly!** Your leverage ({current_leverage:.2f}x) exceeds the "
+            f"Kelly optimal ({kelly_optimal:.2f}x). This level of leverage is expected to "
+            f"**reduce** long-term geometric growth and significantly increases the risk of "
+            f"large drawdowns. Consider reducing exposure."
+        )
+    elif current_leverage > half_kelly:
+        st.warning(
+            f"**Above Half Kelly.** Your leverage ({current_leverage:.2f}x) is between "
+            f"Half Kelly ({half_kelly:.2f}x) and Full Kelly ({kelly_optimal:.2f}x). "
+            f"You are in the aggressive zone — returns are still positive but with "
+            f"substantially higher volatility. Many practitioners target Half Kelly "
+            f"as a practical maximum."
+        )
+    else:
+        st.success(
+            f"**At or below Half Kelly.** Your leverage ({current_leverage:.2f}x) is at or "
+            f"below the Half Kelly level ({half_kelly:.2f}x). This is a conservative "
+            f"position that sacrifices some expected growth for meaningfully lower "
+            f"volatility and drawdown risk."
+        )
+
+# Kelly detail table
+with st.expander("Kelly Calculation Details"):
+    st.markdown(f"""
+| Parameter | Value |
+|---|---|
+| Expected Return (μ) | {expected_return:.1f}% |
+| Risk-Free Rate (r) | {risk_free_rate:.2f}% |
+| Excess Return (μ - r) | {expected_return - risk_free_rate:.2f}% |
+| Volatility (σ) | {annual_volatility:.1f}% |
+| Variance (σ²) | {annual_volatility**2 / 100:.2f}% |
+| **Full Kelly (f* = (μ-r) / σ²)** | **{kelly_optimal:.2f}x** |
+| **Half Kelly (f*/2)** | **{half_kelly:.2f}x** |
+| Net Liquidation Value | ${nlv:,.2f} |
+| Portfolio Exposure (SPX Delta) | ${spx_delta:,.2f} |
+| **Current Leverage** | **{current_leverage:.2f}x** |
+| Kelly-Optimal Notional | ${nlv * kelly_optimal:,.2f} |
+| Half-Kelly Notional | ${nlv * half_kelly:,.2f} |
+""")
+
+st.divider()
+
 # Reference information
 with st.expander("About Micro Futures Contracts"):
     st.markdown("""
@@ -213,3 +353,54 @@ of $5, one contract has a notional value of:
 Click "Refresh Prices" to get the latest quotes. Prices may be delayed.
 Always verify current prices with your broker or exchange data provider.
 """)
+
+with st.expander("About the Kelly Criterion"):
+    st.markdown("""
+**What is the Kelly Criterion?**
+
+The Kelly Criterion, developed by John L. Kelly Jr. in 1956, determines the
+optimal fraction of capital to allocate to a risky bet (or investment) to
+maximize the long-term geometric growth rate of wealth.
+
+**Kelly Leverage Formula**
+
+For a continuously-compounding portfolio with normally-distributed returns:
+
+> **f* = (μ - r) / σ²**
+
+Where:
+- **f*** = optimal leverage ratio
+- **μ** = expected annual return of the asset/portfolio
+- **r** = risk-free rate
+- **σ²** = variance (volatility squared) of the asset/portfolio
+
+**Why Half Kelly?**
+
+Full Kelly is theoretically optimal but assumes perfect knowledge of the true
+return and volatility parameters. In practice:
+
+- Parameter estimates are uncertain — small errors in μ or σ can lead to
+  significant over-leveraging
+- Full Kelly produces large drawdowns (~50%+ is common)
+- Half Kelly captures ~75% of the growth rate with substantially less variance
+- Most professional allocators and practitioners use Half Kelly or less
+
+**Example: S&P 500**
+
+Using approximate long-run parameters (10% return, 4.5% risk-free, 16% vol):
+
+> f* = (10% - 4.5%) / (16%)² = 5.5% / 2.56% = **2.15x**
+>
+> Half Kelly = **1.07x**
+
+This suggests a portfolio fully invested in an S&P 500 index at 1x leverage is
+roughly at the Half Kelly level — a reasonable, moderate position.
+
+**SPX Delta / Beta-Weighted Delta**
+
+If your portfolio contains multiple assets (futures, options, stocks), you can
+convert the total exposure to an SPX-equivalent dollar delta. This beta-weighted
+delta represents how much your portfolio would move for a $1 move in the S&P 500,
+giving a single measure of equity-like exposure to compare against Kelly.
+""")
+
