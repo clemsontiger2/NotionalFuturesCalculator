@@ -153,7 +153,7 @@ st.divider()
 col_controls_1, col_controls_2, col_controls_3 = st.columns([1, 1, 2])
 with col_controls_1:
     default_qty = st.number_input(
-        "Default number of contracts", min_value=1, max_value=1000, value=1, step=1
+        "Default number of contracts", min_value=0, max_value=1000, value=0, step=1
     )
 with col_controls_2:
     if st.button("Refresh Prices"):
