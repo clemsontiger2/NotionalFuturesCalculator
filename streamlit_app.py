@@ -650,7 +650,7 @@ with kelly_input_cols[0]:
     if total_margin > 0:
         margin_pct = (total_margin / nlv * 100) if nlv > 0 else 0.0
         st.info(
-            f"Total maintenance margin from contracts above: **${total_margin:,.0f}** "
+            f"Total maintenance margin from contracts above: **\\${total_margin:,.0f}** "
             f"({margin_pct:.1f}% of NLV)"
         )
     exposure_method = st.radio(
@@ -684,15 +684,15 @@ with kelly_input_cols[0]:
         )
         spx_delta = spx_shares * spx_price
         st.info(
-            f"**{spx_shares:,.2f}** shares x **${spx_price:,.2f}** (SPX) = "
-            f"**${spx_delta:,.2f}** dollar delta"
+            f"**{spx_shares:,.2f}** shares x **\\${spx_price:,.2f}** (SPX) = "
+            f"**\\${spx_delta:,.2f}** dollar delta"
         )
     elif exposure_method == "Use total notional from contracts above":
         spx_delta = total_notional
-        st.info(f"Using total notional (unweighted): **${total_notional:,.2f}**")
+        st.info(f"Using total notional (unweighted): **\\${total_notional:,.2f}**")
     else:
         spx_delta = total_beta_weighted_delta
-        st.info(f"Using beta-weighted delta: **${total_beta_weighted_delta:,.2f}**")
+        st.info(f"Using beta-weighted delta: **\\${total_beta_weighted_delta:,.2f}**")
 
 with kelly_input_cols[1]:
     st.subheader("Market Assumptions")
