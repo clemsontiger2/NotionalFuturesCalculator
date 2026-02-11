@@ -1427,11 +1427,12 @@ if total_notional > 0 and nlv > 0 and sigma > 0:
             help="Simulation horizon in years.",
         )
     with mc_cols[2]:
+        _ruin_default = max(5.0, round(total_margin / nlv * 100, 0)) if nlv > 0 and total_margin > 0 else 25.0
         mc_ruin_pct = st.number_input(
             "Ruin threshold (% of NLV)",
-            min_value=5.0, max_value=100.0, value=round(total_margin / nlv * 100, 0) if nlv > 0 and total_margin > 0 else 25.0,
+            min_value=5.0, max_value=100.0, value=_ruin_default,
             step=5.0, format="%.0f",
-            help="Equity level considered 'ruin' (default = margin call level as % of NLV).",
+            help="Equity level considered 'ruin' (default = margin call level as % of NLV, minimum 5%).",
         )
 
     mc_n_days = int(mc_years * 252)
