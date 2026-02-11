@@ -321,7 +321,12 @@ st.subheader("Settings")
 col_controls_1, col_controls_2, col_controls_3 = st.columns([1, 1, 2])
 with col_controls_1:
     default_qty = st.number_input(
-        "Default number of contracts", min_value=0, max_value=1000, value=0, step=1
+        "Default number of contracts",
+        min_value=0,
+        max_value=1000,
+        value=0,
+        step=1,
+        help="Sets the starting quantity for every contract across all asset classes. Change this to quickly populate all contracts at once.",
     )
 # When default qty changes, push it into all individual contract qty widgets
 prev_default = st.session_state.get("_prev_default_qty")
