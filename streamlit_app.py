@@ -319,6 +319,14 @@ with col_controls_1:
     default_qty = st.number_input(
         "Default number of contracts", min_value=0, max_value=1000, value=0, step=1
     )
+# When default qty changes, push it into all individual contract qty widgets
+prev_default = st.session_state.get("_prev_default_qty")
+if prev_default is not None and default_qty != prev_default:
+    for _, symbol, *_ in MICRO_CONTRACTS:
+        key = f"qty_{symbol}"
+        if key in st.session_state:
+            st.session_state[key] = default_qty
+st.session_state["_prev_default_qty"] = default_qty
 with col_controls_2:
     if st.button("Refresh Prices"):
         st.cache_data.clear()
