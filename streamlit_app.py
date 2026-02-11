@@ -733,6 +733,96 @@ with st.expander("Kelly Calculation Details"):
 
 st.divider()
 
+# ── Risk Analysis ──
+st.header("Risk Analysis")
+st.write(
+    "Key risk metrics derived from your portfolio positions, account size, "
+    "and volatility assumptions from the Kelly section above."
+)
+
+# True (beta-adjusted) leverage
+true_leverage = total_beta_weighted_delta / nlv if nlv > 0 else 0.0
+raw_leverage = total_notional / nlv if nlv > 0 else 0.0
+
+# Value at Risk (95% 1-day)
+z_score_95 = 1.645
+daily_vol = sigma / np.sqrt(252) if sigma > 0 else 0.0
+portfolio_var_95 = abs(total_beta_weighted_delta) * daily_vol * z_score_95
+
+# Distance to margin call
+excess_liquidity = nlv - total_margin
+if total_notional > 0:
+    dist_to_margin_call = excess_liquidity / total_notional
+else:
+    dist_to_margin_call = 1.0
+
+risk_cols = st.columns(3)
+with risk_cols[0]:
+    raw_delta_str = f"vs {raw_leverage:.2f}x raw" if abs(true_leverage - raw_leverage) > 0.01 else None
+    st.metric(
+        label="True Leverage (Beta-Adj)",
+        value=f"{true_leverage:.2f}x",
+        delta=raw_delta_str,
+        delta_color="off",
+        help="Leverage adjusted for the volatility of your assets relative to the S&P 500.",
+    )
+
+with risk_cols[1]:
+    st.metric(
+        label="1-Day VaR (95%)",
+        value=f"${portfolio_var_95:,.0f}",
+        delta=f"{portfolio_var_95 / nlv * 100:.2f}% of NLV" if nlv > 0 else None,
+        delta_color="inverse",
+        help="There is a 5% chance you will lose more than this amount in a single day.",
+    )
+
+with risk_cols[2]:
+    st.metric(
+        label="Dist. to Margin Call",
+        value=f"{dist_to_margin_call:.1%}" if total_notional > 0 else "No positions",
+        delta=f"${excess_liquidity:,.0f} excess liquidity" if total_margin > 0 else None,
+        delta_color="normal",
+        help="The portfolio must drop by this percentage to trigger a margin call.",
+    )
+
+# Warnings
+if nlv > 0 and total_margin > 0:
+    if dist_to_margin_call < 0:
+        st.error(
+            f"**Margin call!** Your maintenance margin (${total_margin:,.0f}) exceeds "
+            f"your NLV (${nlv:,.2f}). You have negative excess liquidity."
+        )
+    elif dist_to_margin_call < 0.10:
+        st.error(
+            f"**Very close to margin call.** Only a **{dist_to_margin_call:.1%}** portfolio "
+            f"decline would trigger a margin call. Excess liquidity: ${excess_liquidity:,.0f}."
+        )
+    elif dist_to_margin_call < 0.25:
+        st.warning(
+            f"**Elevated margin risk.** A **{dist_to_margin_call:.1%}** decline would trigger "
+            f"a margin call. Consider reducing positions or adding capital."
+        )
+
+with st.expander("Risk Calculation Details"):
+    st.markdown(f"""
+| Metric | Value |
+|---|---|
+| Net Liquidation Value | ${nlv:,.2f} |
+| Total Notional (raw) | ${total_notional:,.2f} |
+| Beta-Weighted Notional | ${total_beta_weighted_delta:,.2f} |
+| Raw Leverage | {raw_leverage:.2f}x |
+| **True Leverage (Beta-Adj)** | **{true_leverage:.2f}x** |
+| Annual Volatility (σ) | {annual_volatility:.1f}% |
+| Daily Volatility (σ/√252) | {daily_vol * 100:.3f}% |
+| Z-score (95%) | {z_score_95} |
+| **1-Day VaR (95%)** | **${portfolio_var_95:,.2f}** |
+| Total Maint. Margin | ${total_margin:,.0f} |
+| Excess Liquidity | ${excess_liquidity:,.0f} |
+| **Dist. to Margin Call** | **{dist_to_margin_call:.2%}** |
+""")
+
+st.divider()
+
 # Reference information
 with st.expander("About Micro Futures Contracts"):
     st.markdown("""
