@@ -1100,6 +1100,133 @@ if total_notional > 0 and nlv > 0:
 
 st.divider()
 
+# ── AI Portfolio Insights ──
+st.header("AI Portfolio Insights")
+st.write(
+    "Generate a structured portfolio summary and optionally send it to Claude "
+    "for AI-powered analysis. You can also copy the summary to paste into any AI chat."
+)
+
+
+def _build_portfolio_summary():
+    """Compile all portfolio data into a structured text summary."""
+    lines = []
+    lines.append("=== PORTFOLIO POSITIONS ===")
+    if contract_rows:
+        for row in contract_rows:
+            lines.append(
+                f"  {row['Symbol']} ({row['Contract']}): {row['Qty']} contracts, "
+                f"Notional ${row['Notional']:,.2f}, Beta {row['Beta']:.2f}, "
+                f"Beta-Wtd Delta ${row['Beta-Wtd Delta']:,.2f}, Margin ${row['Margin']:,.2f}"
+            )
+    else:
+        lines.append("  No active positions.")
+    lines.append("")
+
+    lines.append("=== PORTFOLIO SUMMARY ===")
+    lines.append(f"Net Liquidation Value: ${nlv:,.2f}")
+    lines.append(f"Total Notional Exposure: ${total_notional:,.2f}")
+    lines.append(f"Beta-Weighted Delta (SPX-equivalent): ${total_beta_weighted_delta:,.2f}")
+    lines.append(f"Total Maintenance Margin: ${total_margin:,.0f}")
+    lines.append(f"Margin Mode: {margin_mode}")
+    lines.append("")
+
+    lines.append("=== ASSET CLASS BREAKDOWN ===")
+    for cls in ["Equity", "Energy", "Metal", "Crypto", "FX", "Rates"]:
+        if cls in class_breakdown and class_breakdown[cls]["qty"] > 0:
+            d = class_breakdown[cls]
+            pct = d["notional"] / total_notional * 100 if total_notional > 0 else 0
+            lines.append(
+                f"  {cls}: Notional ${d['notional']:,.0f} ({pct:.1f}%), "
+                f"Beta-Wtd ${d['beta_delta']:,.0f}, Margin ${d['margin']:,.0f}"
+            )
+    lines.append("")
+
+    lines.append("=== KELLY CRITERION ===")
+    lines.append(f"Expected Annual Return: {expected_return:.1f}%")
+    lines.append(f"Risk-Free Rate: {risk_free_rate:.2f}%")
+    lines.append(f"Annual Volatility: {annual_volatility:.1f}%")
+    lines.append(f"Full Kelly Optimal Leverage: {kelly_optimal:.2f}x")
+    lines.append(f"Half Kelly Leverage: {half_kelly:.2f}x")
+    lines.append(f"Current Leverage: {current_leverage:.2f}x")
+    lines.append(f"Kelly Status: {status_label} — {status_msg}")
+    lines.append("")
+
+    lines.append("=== RISK METRICS ===")
+    lines.append(f"True Leverage (Beta-Adjusted): {true_leverage:.2f}x")
+    lines.append(f"Raw Leverage: {raw_leverage:.2f}x")
+    lines.append(f"1-Day Value at Risk (95%): ${portfolio_var_95:,.2f}")
+    if nlv > 0:
+        lines.append(f"  VaR as % of NLV: {portfolio_var_95 / nlv * 100:.2f}%")
+    lines.append(f"Distance to Margin Call: {dist_to_margin_call:.1%}")
+    lines.append(f"Excess Liquidity: ${excess_liquidity:,.0f}")
+    return "\n".join(lines)
+
+
+ai_cols = st.columns([2, 1])
+with ai_cols[1]:
+    api_key = st.text_input(
+        "Anthropic API Key",
+        type="password",
+        help="Enter your Anthropic API key for direct AI analysis. Not stored anywhere.",
+        key="anthropic_api_key",
+    )
+
+with ai_cols[0]:
+    btn_cols = st.columns(2)
+    with btn_cols[0]:
+        analyze_clicked = st.button(
+            "Analyze with AI",
+            type="primary",
+            disabled=not api_key,
+            help="Send portfolio summary to Claude for analysis. Requires API key.",
+        )
+    with btn_cols[1]:
+        show_summary = st.button(
+            "Show Portfolio Summary",
+            help="View the full text summary — copy it to paste into any AI chat.",
+        )
+
+if show_summary:
+    summary_text = _build_portfolio_summary()
+    st.code(summary_text, language="text")
+    st.caption("Copy the summary above and paste into ChatGPT, Claude, or any AI assistant.")
+
+if analyze_clicked and api_key:
+    summary_text = _build_portfolio_summary()
+    try:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=api_key)
+        with st.spinner("Analyzing your portfolio with Claude..."):
+            response = client.messages.create(
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=1500,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": (
+                            "You are an experienced futures portfolio analyst. "
+                            "Analyze this micro futures portfolio and provide:\n"
+                            "1. **Overall Assessment** — Is this portfolio well-constructed?\n"
+                            "2. **Leverage Analysis** — Comment on the Kelly positioning\n"
+                            "3. **Risk Concerns** — Key risks to watch\n"
+                            "4. **Diversification** — Asset class balance and correlation risk\n"
+                            "5. **Suggestions** — Specific, actionable improvements\n\n"
+                            "Be concise and direct. Use bullet points.\n\n"
+                            f"{summary_text}"
+                        ),
+                    }
+                ],
+            )
+            st.markdown(response.content[0].text)
+    except ImportError:
+        st.error("The `anthropic` package is not installed. Add it to requirements.txt and redeploy.")
+    except Exception as e:
+        st.error(f"API error: {e}")
+
+st.divider()
+
 # Reference information
 with st.expander("About Micro Futures Contracts"):
     st.markdown("""
