@@ -1949,6 +1949,32 @@ Micro futures are smaller-sized versions of standard futures contracts, typicall
 1/10th the size of their full-sized counterparts. They were introduced by CME Group
 to make futures trading more accessible to individual traders.
 
+**Why Do People Trade Futures?**
+
+- **Capital efficiency** — Futures require only a small margin deposit (often 3–12%
+  of notional value) to control a large position. A trader with $10,000 can get
+  exposure equivalent to $100,000+ in stocks, freeing up capital for other uses.
+- **Tax advantages (U.S.)** — Futures are taxed under the 60/40 rule (Section 1256):
+  60% of gains are taxed as long-term capital gains and 40% as short-term,
+  regardless of holding period. This can result in a lower blended tax rate
+  compared to stocks held under one year.
+- **Nearly 24-hour access** — Futures trade almost around the clock (Sunday evening
+  through Friday afternoon), allowing traders to react to overnight news and global
+  events without waiting for the stock market to open.
+- **No pattern day trader rule** — Unlike stocks, futures have no PDT rule requiring
+  a $25,000 minimum to day trade. You can actively trade with a smaller account.
+- **True portfolio hedging** — Futures let you hedge market exposure precisely. A
+  long stock portfolio can be hedged by shorting index futures rather than selling
+  positions and triggering taxable events.
+- **Short selling without borrowing** — Going short a futures contract is as simple
+  as going long. There are no borrow fees, hard-to-borrow lists, or uptick rules.
+- **Diversification across asset classes** — From a single account, you can trade
+  equities, commodities, currencies, interest rates, and crypto — all with the same
+  margin framework.
+- **Transparent, centralized pricing** — Futures trade on regulated exchanges (CME)
+  with centralized order books, no payment for order flow concerns, and tight
+  bid-ask spreads on liquid contracts.
+
 **How is Notional Value Calculated?**
 
 > **Notional Value = Current Price x Contract Multiplier x Number of Contracts**
