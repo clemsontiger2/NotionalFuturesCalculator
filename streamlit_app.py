@@ -488,8 +488,8 @@ if contract_rows:
                 hide_index=True,
                 column_config={
                     "Price": st.column_config.NumberColumn(format="$%.2f"),
-                    "Notional": st.column_config.NumberColumn(format="$%,.2f"),
-                    "Beta-Wtd Delta": st.column_config.NumberColumn(format="$%,.2f"),
+                    "Notional": st.column_config.NumberColumn(format="$%.2f"),
+                    "Beta-Wtd Delta": st.column_config.NumberColumn(format="$%.2f"),
                 },
             )
             st.caption(f"Maintenance margin for {cls}: ${d['margin']:,.0f}")
