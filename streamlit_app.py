@@ -358,8 +358,8 @@ MICRO_CONTRACTS = [
     ("Micro AUD/USD", "M6A", 10000, "10,000 Australian dollars"),
     ("Micro USD/JPY", "M6J", 1250000, "1,250,000 Japanese yen (inverted)"),
     ("Micro USD/CAD", "M6C", 10000, "10,000 Canadian dollars (inverted)"),
-    ("Micro 10-Year Yield", "10Y", 1000, "$1,000 x yield index"),
-    ("Micro 2-Year Yield", "2YY", 1000, "$1,000 x yield index"),
+    ("Micro 10-Year Yield", "10Y", 1000, "\\$1,000 x yield index"),
+    ("Micro 2-Year Yield", "2YY", 1000, "\\$1,000 x yield index"),
 ]
 
 def _snap_to_tick(price, tick_inc):
@@ -1952,8 +1952,8 @@ to make futures trading more accessible to individual traders.
 **Why Do People Trade Futures?**
 
 - **Capital efficiency** — Futures require only a small margin deposit (often 3–12%
-  of notional value) to control a large position. A trader with $10,000 can get
-  exposure equivalent to $100,000+ in stocks, freeing up capital for other uses.
+  of notional value) to control a large position. A trader with \$10,000 can get
+  exposure equivalent to \$100,000+ in stocks, freeing up capital for other uses.
 - **Tax advantages (U.S.)** — Futures are taxed under the 60/40 rule (Section 1256):
   60% of gains are taxed as long-term capital gains and 40% as short-term,
   regardless of holding period. This can result in a lower blended tax rate
@@ -1962,7 +1962,7 @@ to make futures trading more accessible to individual traders.
   through Friday afternoon), allowing traders to react to overnight news and global
   events without waiting for the stock market to open.
 - **No pattern day trader rule** — Unlike stocks, futures have no PDT rule requiring
-  a $25,000 minimum to day trade. You can actively trade with a smaller account.
+  a \$25,000 minimum to day trade. You can actively trade with a smaller account.
 - **True portfolio hedging** — Futures let you hedge market exposure precisely. A
   long stock portfolio can be hedged by shorting index futures rather than selling
   positions and triggering taxable events.
@@ -1980,9 +1980,9 @@ to make futures trading more accessible to individual traders.
 > **Notional Value = Current Price x Contract Multiplier x Number of Contracts**
 
 For example, if the Micro E-mini S&P 500 (MES) is trading at 5,950 with a multiplier
-of $5, one contract has a notional value of:
+of \$5, one contract has a notional value of:
 
-> 5,950 x $5 = **$29,750**
+> 5,950 x \$5 = **\$29,750**
 
 **Why Does Notional Value Matter?**
 
@@ -2042,7 +2042,7 @@ roughly at the Half Kelly level — a reasonable, moderate position.
 
 If your portfolio contains multiple assets (futures, options, stocks), you can
 convert the total exposure to an SPX-equivalent dollar delta. This beta-weighted
-delta represents how much your portfolio would move for a $1 move in the S&P 500,
+delta represents how much your portfolio would move for a \$1 move in the S&P 500,
 giving a single measure of equity-like exposure to compare against Kelly.
 """)
 
