@@ -864,6 +864,12 @@ st.markdown(
     f"{true_leverage:.2f}x Lev</span>",
     unsafe_allow_html=True,
 )
+st.write(
+    "The gauge below shows your **beta-adjusted leverage** relative to the Kelly Criterion targets "
+    "from your market assumptions. The green zone (0x to Half Kelly) is conservative, "
+    "orange (Half Kelly to Full Kelly) is moderate, and red (beyond Full Kelly) indicates "
+    "over-leverage that is expected to hurt long-term growth. The diamond marks your current position."
+)
 
 # Leverage gauge
 if kelly_optimal > 0:
