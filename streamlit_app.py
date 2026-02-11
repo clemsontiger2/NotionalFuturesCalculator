@@ -1490,7 +1490,7 @@ if total_notional > 0 and nlv > 0 and sigma > 0:
         )
     with mc_cols[1]:
         mc_years = st.number_input(
-            "Horizon (years)", min_value=1, max_value=10, value=5, step=1,
+            "Horizon (years)", min_value=1, max_value=30, value=5, step=1,
             help="Simulation horizon in years.",
         )
     with mc_cols[2]:
