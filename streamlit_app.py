@@ -398,16 +398,12 @@ elif margin_mode == "Custom (per contract)":
 
 st.divider()
 
-# Build the table header
-header_cols = st.columns([2, 1, 1.2, 1.2, 1, 1.5])
-header_cols[0].markdown("**Contract**")
-header_cols[1].markdown("**Symbol**")
-header_cols[2].markdown("**Multiplier**")
-header_cols[3].markdown("**Price**")
-header_cols[4].markdown("**Qty**")
-header_cols[5].markdown("**Notional Value**")
-
-st.divider()
+# Group contracts by asset class for tabbed display
+_CLASS_ORDER = ["Equity", "Energy", "Metal", "Crypto", "FX", "Rates"]
+_contracts_by_class = {}
+for _n, _s, _m, _d in MICRO_CONTRACTS:
+    _cls = CONTRACT_SPECS.get(_s, {}).get("asset_class", "Other")
+    _contracts_by_class.setdefault(_cls, []).append((_n, _s, _m, _d))
 
 total_notional = 0.0
 total_margin = 0.0
@@ -415,98 +411,104 @@ total_beta_weighted_delta = 0.0
 class_breakdown = {}  # {class: {"notional": ..., "beta_delta": ..., "margin": ..., "qty": ...}}
 contract_rows = []  # per-contract data for grouped display
 
-for name, symbol, multiplier, description in MICRO_CONTRACTS:
-    cols = st.columns([2, 1, 1.2, 1.2, 1, 1.5])
+asset_tabs = st.tabs(_CLASS_ORDER)
+for _tab, _tab_cls in zip(asset_tabs, _CLASS_ORDER):
+    with _tab:
+        # Table header inside each tab
+        header_cols = st.columns([2, 1, 1.2, 1.2, 1, 1.5])
+        header_cols[0].markdown("**Contract**")
+        header_cols[1].markdown("**Symbol**")
+        header_cols[2].markdown("**Multiplier**")
+        header_cols[3].markdown("**Price**")
+        header_cols[4].markdown("**Qty**")
+        header_cols[5].markdown("**Notional Value**")
+        st.divider()
 
-    spec = CONTRACT_SPECS.get(symbol, {})
-    tick_inc = spec.get("tick_inc", 0)
-    fetched_price = live_prices.get(symbol, FALLBACK_PRICES[symbol])
-    # Snap fetched price to the nearest valid tick increment
-    if tick_inc > 0:
-        fetched_price = _snap_to_tick(fetched_price, tick_inc)
+        for name, symbol, multiplier, description in _contracts_by_class.get(_tab_cls, []):
+            cols = st.columns([2, 1, 1.2, 1.2, 1, 1.5])
 
-    # Determine decimal places from tick increment
-    if tick_inc > 0:
-        tick_str = f"{tick_inc:.10f}".rstrip("0")
-        decimals = len(tick_str.split(".")[-1]) if "." in tick_str else 0
-    else:
-        decimals = 4 if fetched_price < 1 else 2
-    fmt = f"%.{decimals}f"
+            spec = CONTRACT_SPECS.get(symbol, {})
+            tick_inc = spec.get("tick_inc", 0)
+            fetched_price = live_prices.get(symbol, FALLBACK_PRICES[symbol])
+            if tick_inc > 0:
+                fetched_price = _snap_to_tick(fetched_price, tick_inc)
 
-    with cols[0]:
-        st.markdown(f"**{name}**")
-        st.caption(description)
+            if tick_inc > 0:
+                tick_str = f"{tick_inc:.10f}".rstrip("0")
+                decimals = len(tick_str.split(".")[-1]) if "." in tick_str else 0
+            else:
+                decimals = 4 if fetched_price < 1 else 2
+            fmt = f"%.{decimals}f"
 
-    with cols[1]:
-        st.code(symbol, language=None)
+            with cols[0]:
+                st.markdown(f"**{name}**")
+                st.caption(description)
+            with cols[1]:
+                st.code(symbol, language=None)
+            with cols[2]:
+                if multiplier >= 1:
+                    st.write(f"${multiplier:,.2f}")
+                else:
+                    st.write(f"${multiplier}")
+            with cols[3]:
+                price = st.number_input(
+                    f"Price ({symbol})",
+                    min_value=0.0,
+                    value=fetched_price,
+                    step=tick_inc if tick_inc > 0 else fetched_price * 0.001,
+                    format=fmt,
+                    label_visibility="collapsed",
+                    key=f"price_{symbol}",
+                )
+            with cols[4]:
+                qty = st.number_input(
+                    f"Qty ({symbol})",
+                    min_value=0,
+                    max_value=10000,
+                    value=default_qty,
+                    step=1,
+                    label_visibility="collapsed",
+                    key=f"qty_{symbol}",
+                )
 
-    with cols[2]:
-        if multiplier >= 1:
-            st.write(f"${multiplier:,.2f}")
-        else:
-            st.write(f"${multiplier}")
+            notional = price * multiplier * qty
+            beta = spec.get("spx_beta", 0.0)
+            beta_delta = notional * beta
 
-    with cols[3]:
-        price = st.number_input(
-            f"Price ({symbol})",
-            min_value=0.0,
-            value=fetched_price,
-            step=tick_inc if tick_inc > 0 else fetched_price * 0.001,
-            format=fmt,
-            label_visibility="collapsed",
-            key=f"price_{symbol}",
-        )
+            # Margin calculation based on selected mode
+            if margin_mode == "Exchange estimates":
+                contract_margin = spec.get("maint_margin", 0) * qty
+            elif margin_mode == "Formula-based (auto)":
+                contract_margin = abs(notional) * daily_vol_formula * z_99 * margin_buffer if notional > 0 else 0.0
+            else:  # Custom (per contract)
+                contract_margin = custom_margins.get(symbol, spec.get("maint_margin", 0)) * qty
+            total_notional += notional
+            total_margin += contract_margin
+            total_beta_weighted_delta += beta_delta
 
-    with cols[4]:
-        qty = st.number_input(
-            f"Qty ({symbol})",
-            min_value=0,
-            max_value=10000,
-            value=default_qty,
-            step=1,
-            label_visibility="collapsed",
-            key=f"qty_{symbol}",
-        )
+            cls = spec.get("asset_class", "Other")
+            if cls not in class_breakdown:
+                class_breakdown[cls] = {"notional": 0.0, "beta_delta": 0.0, "margin": 0.0, "qty": 0}
+            class_breakdown[cls]["notional"] += notional
+            class_breakdown[cls]["beta_delta"] += beta_delta
+            class_breakdown[cls]["margin"] += contract_margin
+            class_breakdown[cls]["qty"] += qty
 
-    notional = price * multiplier * qty
-    beta = spec.get("spx_beta", 0.0)
-    beta_delta = notional * beta
+            if qty > 0:
+                contract_rows.append({
+                    "asset_class": cls,
+                    "Symbol": symbol,
+                    "Contract": name,
+                    "Price": price,
+                    "Qty": qty,
+                    "Notional": round(notional, 2),
+                    "Beta": beta,
+                    "Beta-Wtd Delta": round(beta_delta, 2),
+                    "Margin": round(contract_margin, 2),
+                })
 
-    # Margin calculation based on selected mode
-    if margin_mode == "Exchange estimates":
-        contract_margin = spec.get("maint_margin", 0) * qty
-    elif margin_mode == "Formula-based (auto)":
-        contract_margin = abs(notional) * daily_vol_formula * z_99 * margin_buffer if notional > 0 else 0.0
-    else:  # Custom (per contract)
-        contract_margin = custom_margins.get(symbol, spec.get("maint_margin", 0)) * qty
-    total_notional += notional
-    total_margin += contract_margin
-    total_beta_weighted_delta += beta_delta
-
-    # Accumulate per-class
-    cls = spec.get("asset_class", "Other")
-    if cls not in class_breakdown:
-        class_breakdown[cls] = {"notional": 0.0, "beta_delta": 0.0, "margin": 0.0, "qty": 0}
-    class_breakdown[cls]["notional"] += notional
-    class_breakdown[cls]["beta_delta"] += beta_delta
-    class_breakdown[cls]["margin"] += contract_margin
-    class_breakdown[cls]["qty"] += qty
-
-    if qty > 0:
-        contract_rows.append({
-            "asset_class": cls,
-            "Symbol": symbol,
-            "Contract": name,
-            "Price": price,
-            "Qty": qty,
-            "Notional": round(notional, 2),
-            "Beta": beta,
-            "Beta-Wtd Delta": round(beta_delta, 2),
-            "Margin": round(contract_margin, 2),
-        })
-
-    with cols[5]:
-        st.markdown(f"### ${notional:,.2f}")
+            with cols[5]:
+                st.markdown(f"### ${notional:,.2f}")
 
 st.divider()
 
@@ -819,6 +821,103 @@ with st.expander("Kelly Calculation Details"):
 | Kelly-Optimal Notional | ${nlv * kelly_optimal:,.2f} |
 | Half-Kelly Notional | ${nlv * half_kelly:,.2f} |
 """)
+
+st.divider()
+
+# ── Reverse Calculator ──
+st.header("Reverse Calculator")
+st.write(
+    "Enter a target leverage and see how many contracts of each type you'd need. "
+    "No more guess-and-check."
+)
+
+rev_cols = st.columns([1, 1, 2])
+with rev_cols[0]:
+    target_leverage = st.number_input(
+        "Target leverage",
+        min_value=0.1,
+        max_value=20.0,
+        value=half_kelly if half_kelly > 0 else 1.0,
+        step=0.1,
+        format="%.2f",
+        help="The leverage ratio you want to achieve (e.g., Half Kelly).",
+    )
+with rev_cols[1]:
+    rev_method = st.radio(
+        "Sizing method",
+        ["Beta-weighted", "Raw notional"],
+        horizontal=True,
+        help=(
+            "**Beta-weighted**: contracts needed so beta-weighted delta = target × NLV. "
+            "**Raw notional**: contracts needed so raw notional = target × NLV."
+        ),
+    )
+
+if nlv > 0:
+    target_exposure = target_leverage * nlv
+    rev_data = []
+    for name, symbol, multiplier, _desc in MICRO_CONTRACTS:
+        spec = CONTRACT_SPECS.get(symbol, {})
+        p = live_prices.get(symbol, FALLBACK_PRICES[symbol])
+        one_notional = p * multiplier
+        beta = spec.get("spx_beta", 0.0)
+
+        if rev_method == "Beta-weighted":
+            one_exposure = one_notional * abs(beta) if beta != 0 else 0
+        else:
+            one_exposure = one_notional
+
+        if one_exposure > 0:
+            contracts_needed = target_exposure / one_exposure
+            total_rev_notional = one_notional * contracts_needed
+        else:
+            contracts_needed = 0
+            total_rev_notional = 0
+
+        # Per-contract margin
+        if margin_mode == "Exchange estimates":
+            unit_margin = spec.get("maint_margin", 0)
+        elif margin_mode == "Formula-based (auto)":
+            unit_margin = abs(one_notional) * daily_vol_formula * z_99 * margin_buffer if one_notional > 0 else 0
+        else:
+            unit_margin = custom_margins.get(symbol, spec.get("maint_margin", 0))
+        total_rev_margin = unit_margin * contracts_needed
+
+        rev_data.append({
+            "Contract": name,
+            "Symbol": symbol,
+            "Class": spec.get("asset_class", "—"),
+            "Beta": beta,
+            "Price": p,
+            "Contracts": round(contracts_needed, 1),
+            "Rounded": int(round(contracts_needed)),
+            "Notional": round(total_rev_notional, 0),
+            "Est. Margin": round(total_rev_margin, 0),
+        })
+
+    rev_df = pd.DataFrame(rev_data)
+    st.caption(
+        f"Target: **{target_leverage:.2f}x** leverage = "
+        f"**\\${target_exposure:,.0f}** exposure on **\\${nlv:,.0f}** NLV"
+    )
+    st.dataframe(
+        rev_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Beta": st.column_config.NumberColumn(format="%.2f"),
+            "Price": st.column_config.NumberColumn(format="$%.2f"),
+            "Contracts": st.column_config.NumberColumn(format="%.1f"),
+            "Notional": st.column_config.NumberColumn(format="$%.0f"),
+            "Est. Margin": st.column_config.NumberColumn(format="$%.0f"),
+        },
+    )
+    st.caption(
+        "**Contracts** = exact fractional count; **Rounded** = nearest whole number. "
+        "Margin estimates use the margin mode selected above."
+    )
+else:
+    st.info("Enter a Net Liquidation Value in the Kelly section above to use the reverse calculator.")
 
 st.divider()
 
