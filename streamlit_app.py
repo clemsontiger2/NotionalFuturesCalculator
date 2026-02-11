@@ -1035,6 +1035,79 @@ with st.expander("Risk Calculation Details"):
 | **Dist. to Margin Call** | **{dist_to_margin_call:.2%}** |
 """)
 
+# ── Volatility-Based Trailing Stops ──
+if total_notional > 0 and nlv > 0 and daily_vol > 0:
+    st.subheader("Volatility-Based Trailing Stops")
+    st.write(
+        "Trailing stop levels derived from your volatility assumption. "
+        "A common institutional approach uses 2x–3x the daily expected move "
+        "to set stop distances that respect normal market noise."
+    )
+
+    daily_move_pct = daily_vol * 100  # daily vol as %
+    tight_mult = 2.0
+    loose_mult = 3.0
+    tight_stop_pct = daily_move_pct * tight_mult
+    loose_stop_pct = daily_move_pct * loose_mult
+
+    # Portfolio-level dollar impact
+    tight_stop_dollar = nlv * (tight_stop_pct / 100)
+    loose_stop_dollar = nlv * (loose_stop_pct / 100)
+
+    stop_cols = st.columns(3)
+    with stop_cols[0]:
+        st.metric(
+            label="Daily Expected Move",
+            value=f"{daily_move_pct:.2f}%",
+            delta=f"from {annual_volatility:.1f}% annual vol",
+            delta_color="off",
+            help=f"Annual vol ({annual_volatility:.1f}%) / √252 = {daily_move_pct:.2f}% daily.",
+        )
+    with stop_cols[1]:
+        st.metric(
+            label="Tight Stop (2x Daily Vol)",
+            value=f"{tight_stop_pct:.2f}%",
+            delta=f"\\${tight_stop_dollar:,.0f} on \\${nlv:,.0f} NLV",
+            delta_color="off",
+            help="2x daily volatility — tighter stop, more frequent triggers, less drawdown per event.",
+        )
+    with stop_cols[2]:
+        st.metric(
+            label="Loose Stop (3x Daily Vol)",
+            value=f"{loose_stop_pct:.2f}%",
+            delta=f"\\${loose_stop_dollar:,.0f} on \\${nlv:,.0f} NLV",
+            delta_color="off",
+            help="3x daily volatility — wider stop, fewer false triggers, larger drawdown per event.",
+        )
+
+    # Per-contract stop price levels
+    if contract_rows:
+        with st.expander("Per-Contract Stop Levels"):
+            stop_data = []
+            for row in contract_rows:
+                sym = row["Symbol"]
+                p = row["Price"]
+                tight_price = p * (1 - tight_stop_pct / 100)
+                loose_price = p * (1 - loose_stop_pct / 100)
+                spec = CONTRACT_SPECS.get(sym, {})
+                tick_inc = spec.get("tick_inc", 0)
+                if tick_inc > 0:
+                    tight_price = _snap_to_tick(tight_price, tick_inc)
+                    loose_price = _snap_to_tick(loose_price, tick_inc)
+                stop_data.append({
+                    "Symbol": sym,
+                    "Current Price": p,
+                    f"Tight Stop ({tight_stop_pct:.1f}%)": tight_price,
+                    f"Loose Stop ({loose_stop_pct:.1f}%)": loose_price,
+                })
+            stop_df = pd.DataFrame(stop_data)
+            st.dataframe(stop_df, use_container_width=True, hide_index=True)
+            st.caption(
+                "Stop prices are based on the portfolio-level volatility assumption. "
+                "Individual contracts may have different realized volatility — "
+                "consider adjusting per-asset if needed."
+            )
+
 # ── Portfolio Stress Test ──
 if total_notional > 0 and nlv > 0:
     st.subheader("Portfolio Stress Test")
