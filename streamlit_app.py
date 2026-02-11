@@ -824,103 +824,6 @@ with st.expander("Kelly Calculation Details"):
 
 st.divider()
 
-# ── Reverse Calculator ──
-st.header("Reverse Calculator")
-st.write(
-    "Enter a target leverage and see how many contracts of each type you'd need. "
-    "No more guess-and-check."
-)
-
-rev_cols = st.columns([1, 1, 2])
-with rev_cols[0]:
-    target_leverage = st.number_input(
-        "Target leverage",
-        min_value=0.1,
-        max_value=20.0,
-        value=half_kelly if half_kelly > 0 else 1.0,
-        step=0.1,
-        format="%.2f",
-        help="The leverage ratio you want to achieve (e.g., Half Kelly).",
-    )
-with rev_cols[1]:
-    rev_method = st.radio(
-        "Sizing method",
-        ["Beta-weighted", "Raw notional"],
-        horizontal=True,
-        help=(
-            "**Beta-weighted**: contracts needed so beta-weighted delta = target × NLV. "
-            "**Raw notional**: contracts needed so raw notional = target × NLV."
-        ),
-    )
-
-if nlv > 0:
-    target_exposure = target_leverage * nlv
-    rev_data = []
-    for name, symbol, multiplier, _desc in MICRO_CONTRACTS:
-        spec = CONTRACT_SPECS.get(symbol, {})
-        p = live_prices.get(symbol, FALLBACK_PRICES[symbol])
-        one_notional = p * multiplier
-        beta = spec.get("spx_beta", 0.0)
-
-        if rev_method == "Beta-weighted":
-            one_exposure = one_notional * abs(beta) if beta != 0 else 0
-        else:
-            one_exposure = one_notional
-
-        if one_exposure > 0:
-            contracts_needed = target_exposure / one_exposure
-            total_rev_notional = one_notional * contracts_needed
-        else:
-            contracts_needed = 0
-            total_rev_notional = 0
-
-        # Per-contract margin
-        if margin_mode == "Exchange estimates":
-            unit_margin = spec.get("maint_margin", 0)
-        elif margin_mode == "Formula-based (auto)":
-            unit_margin = abs(one_notional) * daily_vol_formula * z_99 * margin_buffer if one_notional > 0 else 0
-        else:
-            unit_margin = custom_margins.get(symbol, spec.get("maint_margin", 0))
-        total_rev_margin = unit_margin * contracts_needed
-
-        rev_data.append({
-            "Contract": name,
-            "Symbol": symbol,
-            "Class": spec.get("asset_class", "—"),
-            "Beta": beta,
-            "Price": p,
-            "Contracts": round(contracts_needed, 1),
-            "Rounded": int(round(contracts_needed)),
-            "Notional": round(total_rev_notional, 0),
-            "Est. Margin": round(total_rev_margin, 0),
-        })
-
-    rev_df = pd.DataFrame(rev_data)
-    st.caption(
-        f"Target: **{target_leverage:.2f}x** leverage = "
-        f"**\\${target_exposure:,.0f}** exposure on **\\${nlv:,.0f}** NLV"
-    )
-    st.dataframe(
-        rev_df,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Beta": st.column_config.NumberColumn(format="%.2f"),
-            "Price": st.column_config.NumberColumn(format="$%.2f"),
-            "Contracts": st.column_config.NumberColumn(format="%.1f"),
-            "Notional": st.column_config.NumberColumn(format="$%.0f"),
-            "Est. Margin": st.column_config.NumberColumn(format="$%.0f"),
-        },
-    )
-    st.caption(
-        "**Contracts** = exact fractional count; **Rounded** = nearest whole number. "
-        "Margin estimates use the margin mode selected above."
-    )
-else:
-    st.info("Enter a Net Liquidation Value in the Kelly section above to use the reverse calculator.")
-
-st.divider()
-
 # ── Risk Analysis ──
 
 # Calculate risk metrics first (needed for gauge)
@@ -1196,6 +1099,134 @@ if total_notional > 0 and nlv > 0:
         )
 
     st.plotly_chart(fig, use_container_width=True)
+
+st.divider()
+
+# ── What-If Scenario Simulator ──
+if total_notional > 0 and nlv > 0:
+    st.header("What-If Scenario Simulator")
+    st.write(
+        "Simulate a market shock and VIX spike to see if your account survives. "
+        "Adjust the sliders to stress-test your portfolio in real time."
+    )
+
+    wi_cols = st.columns(2)
+    with wi_cols[0]:
+        wi_market_move = st.slider(
+            "S&P 500 market move",
+            min_value=-30.0,
+            max_value=10.0,
+            value=0.0,
+            step=0.5,
+            format="%.1f%%",
+            help="Simulate an instantaneous market move. Negative = crash, positive = rally.",
+        )
+    with wi_cols[1]:
+        wi_vix = st.slider(
+            "VIX spikes to",
+            min_value=10.0,
+            max_value=90.0,
+            value=annual_volatility,
+            step=1.0,
+            format="%.0f",
+            help="Simulate a volatility spike. Current assumption shown as default.",
+        )
+
+    # Shocked P&L: beta-weighted delta * market move
+    wi_move_dec = wi_market_move / 100.0
+    wi_pnl = total_beta_weighted_delta * wi_move_dec
+    wi_equity = nlv + wi_pnl
+
+    # Stressed VaR with shocked VIX
+    wi_daily_vol = (wi_vix / 100.0) / np.sqrt(252)
+    wi_var_95 = abs(total_beta_weighted_delta) * wi_daily_vol * 1.645
+    wi_var_99 = abs(total_beta_weighted_delta) * wi_daily_vol * 2.326
+
+    # Margin under formula mode scales with vol; exchange/custom stays fixed
+    if margin_mode == "Formula-based (auto)":
+        wi_daily_formula = (wi_vix / 100.0) / np.sqrt(252)
+        wi_margin = abs(total_notional) * wi_daily_formula * z_99 * margin_buffer
+    else:
+        wi_margin = total_margin
+
+    wi_excess = wi_equity - wi_margin
+    wi_surviving = wi_equity > wi_margin
+
+    # Display results
+    st.markdown("---")
+    wi_result_cols = st.columns(4)
+    with wi_result_cols[0]:
+        pnl_color = "normal" if wi_pnl >= 0 else "inverse"
+        st.metric(
+            label="Scenario P&L",
+            value=f"${wi_pnl:,.0f}",
+            delta=f"{wi_market_move:+.1f}% move",
+            delta_color=pnl_color,
+        )
+    with wi_result_cols[1]:
+        st.metric(
+            label="Surviving Equity",
+            value=f"${wi_equity:,.0f}",
+            delta=f"{wi_pnl / nlv * 100:+.1f}% of NLV" if nlv > 0 else None,
+            delta_color="normal" if wi_pnl >= 0 else "inverse",
+        )
+    with wi_result_cols[2]:
+        st.metric(
+            label="Stressed 1-Day VaR (95%)",
+            value=f"${wi_var_95:,.0f}",
+            delta=f"{wi_var_95 / wi_equity * 100:.1f}% of equity" if wi_equity > 0 else "N/A",
+            delta_color="inverse",
+        )
+    with wi_result_cols[3]:
+        st.metric(
+            label="Excess Liquidity After Shock",
+            value=f"${wi_excess:,.0f}",
+            delta="Surviving" if wi_surviving else "LIQUIDATED",
+            delta_color="normal" if wi_surviving else "inverse",
+        )
+
+    # Survival verdict
+    if not wi_surviving:
+        st.error(
+            f"**MARGIN CALL.** After a **{wi_market_move:+.1f}%** move, equity drops to "
+            f"\\${wi_equity:,.0f} — below the maintenance margin of \\${wi_margin:,.0f}. "
+            f"Your positions would be liquidated."
+        )
+    elif wi_excess < nlv * 0.10:
+        st.warning(
+            f"**Close call.** After a **{wi_market_move:+.1f}%** move, you'd have only "
+            f"\\${wi_excess:,.0f} excess liquidity. Another "
+            f"{wi_excess / total_notional:.1%} decline triggers liquidation."
+        )
+    else:
+        st.success(
+            f"**Survives.** After a **{wi_market_move:+.1f}%** move with VIX at {wi_vix:.0f}, "
+            f"equity is \\${wi_equity:,.0f} with \\${wi_excess:,.0f} excess liquidity."
+        )
+
+    # Scenario detail table
+    with st.expander("Scenario Details"):
+        st.markdown(f"""
+| Parameter | Current | After Shock |
+|---|---|---|
+| Market Move | — | {wi_market_move:+.1f}% |
+| Volatility (annualized) | {annual_volatility:.1f}% | {wi_vix:.0f}% |
+| Daily Vol | {daily_vol * 100:.3f}% | {wi_daily_vol * 100:.3f}% |
+| Portfolio Equity | ${nlv:,.0f} | ${wi_equity:,.0f} |
+| P&L | — | ${wi_pnl:,.0f} |
+| 1-Day VaR (95%) | ${portfolio_var_95:,.0f} | ${wi_var_95:,.0f} |
+| 1-Day VaR (99%) | — | ${wi_var_99:,.0f} |
+| Maint. Margin | ${total_margin:,.0f} | ${wi_margin:,.0f} |
+| Excess Liquidity | ${excess_liquidity:,.0f} | ${wi_excess:,.0f} |
+| **Survival** | — | **{"YES" if wi_surviving else "NO — LIQUIDATED"}** |
+""")
+
+    # Quick scenario presets
+    st.caption(
+        "**Common scenarios:** "
+        "Flash crash (-5%, VIX 35) · Correction (-10%, VIX 40) · "
+        "Bear market (-20%, VIX 55) · Black swan (-30%, VIX 80)"
+    )
 
 st.divider()
 
