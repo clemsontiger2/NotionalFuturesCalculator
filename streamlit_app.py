@@ -1406,6 +1406,230 @@ if total_notional > 0 and nlv > 0:
 
 st.divider()
 
+# ── Monte Carlo Simulation ──
+if total_notional > 0 and nlv > 0 and sigma > 0:
+    st.header("Monte Carlo Simulation")
+    st.write(
+        "10,000 simulated portfolio paths over 5 years using your current leverage, "
+        "return assumptions, and volatility. Shows the range of possible outcomes "
+        "and the probability of ruin."
+    )
+
+    mc_cols = st.columns(3)
+    with mc_cols[0]:
+        mc_n_paths = st.number_input(
+            "Paths", min_value=1000, max_value=50000, value=10000, step=1000,
+            help="Number of random simulations to run.",
+        )
+    with mc_cols[1]:
+        mc_years = st.number_input(
+            "Horizon (years)", min_value=1, max_value=10, value=5, step=1,
+            help="Simulation horizon in years.",
+        )
+    with mc_cols[2]:
+        mc_ruin_pct = st.number_input(
+            "Ruin threshold (% of NLV)",
+            min_value=5.0, max_value=100.0, value=round(total_margin / nlv * 100, 0) if nlv > 0 and total_margin > 0 else 25.0,
+            step=5.0, format="%.0f",
+            help="Equity level considered 'ruin' (default = margin call level as % of NLV).",
+        )
+
+    mc_n_days = int(mc_years * 252)
+    mc_leverage = current_leverage
+    mc_rf_daily = (risk_free_rate / 100) / 252
+    mc_mu_daily = (expected_return / 100) / 252
+    mc_sigma_daily = sigma / np.sqrt(252)
+    mc_ruin_level = nlv * (mc_ruin_pct / 100)
+
+    # Simulate
+    rng = np.random.default_rng(seed=42)
+    z = rng.standard_normal((mc_n_days, mc_n_paths))
+
+    # Underlying daily returns
+    underlying_returns = mc_mu_daily + mc_sigma_daily * z
+
+    # Leveraged portfolio daily returns: r_p = L * r_asset + (1 - L) * r_f
+    port_returns = mc_leverage * underlying_returns + (1 - mc_leverage) * mc_rf_daily
+
+    # Compound to equity curves
+    growth_factors = 1 + port_returns
+    cum_growth = np.cumprod(growth_factors, axis=0)
+    equity_paths = nlv * cum_growth
+
+    # Prepend initial NLV row
+    equity_paths = np.vstack([np.full(mc_n_paths, nlv), equity_paths])
+
+    # ── Metrics ──
+
+    # 1. Geometric CAGR per path
+    final_values = equity_paths[-1, :]
+    cagrs = (final_values / nlv) ** (1 / mc_years) - 1
+    median_cagr = np.median(cagrs)
+    p5_cagr = np.percentile(cagrs, 5)
+    p95_cagr = np.percentile(cagrs, 95)
+
+    # 2. Maximum drawdown per path
+    running_max = np.maximum.accumulate(equity_paths, axis=0)
+    drawdowns = (equity_paths - running_max) / running_max
+    max_dd_per_path = drawdowns.min(axis=0)
+    median_max_dd = np.median(max_dd_per_path)
+    p95_max_dd = np.percentile(max_dd_per_path, 5)  # worst 5% of drawdowns
+
+    # 3. Ruin probability
+    min_equity_per_path = equity_paths.min(axis=0)
+    ruin_count = int(np.sum(min_equity_per_path < mc_ruin_level))
+    ruin_prob = ruin_count / mc_n_paths
+
+    # Display metrics
+    mc_metric_cols = st.columns(4)
+    with mc_metric_cols[0]:
+        st.metric(
+            label="Expected Geometric CAGR",
+            value=f"{median_cagr:.1%}",
+            delta=f"5th–95th: {p5_cagr:.1%} to {p95_cagr:.1%}",
+            delta_color="off",
+            help="Median annualized compound growth rate across all simulated paths.",
+        )
+    with mc_metric_cols[1]:
+        st.metric(
+            label="Expected Max Drawdown",
+            value=f"{median_max_dd:.1%}",
+            delta=f"Worst 5%: {p95_max_dd:.1%}",
+            delta_color="off",
+            help="Median worst peak-to-trough decline across all paths.",
+        )
+    with mc_metric_cols[2]:
+        ruin_color = "off"
+        if ruin_prob > 0.10:
+            ruin_color = "inverse"
+        st.metric(
+            label=f"Ruin Probability ({mc_years}yr)",
+            value=f"{ruin_prob:.1%}",
+            delta=f"{ruin_count:,} of {mc_n_paths:,} paths",
+            delta_color=ruin_color,
+            help=f"Fraction of paths where equity drops below ${mc_ruin_level:,.0f} ({mc_ruin_pct:.0f}% of NLV).",
+        )
+    with mc_metric_cols[3]:
+        median_terminal = np.median(final_values)
+        st.metric(
+            label=f"Median Terminal Value ({mc_years}yr)",
+            value=f"${median_terminal:,.0f}",
+            delta=f"{(median_terminal / nlv - 1):+.0%} total return",
+            delta_color="normal" if median_terminal >= nlv else "inverse",
+            help="Median ending portfolio value across all paths.",
+        )
+
+    # Ruin warning
+    if ruin_prob > 0.25:
+        st.error(
+            f"**High ruin risk.** {ruin_prob:.0%} of simulated paths hit the ruin threshold "
+            f"(\\${mc_ruin_level:,.0f}) within {mc_years} years. At {mc_leverage:.2f}x leverage, "
+            f"the expected max drawdown is {median_max_dd:.0%}. Consider reducing leverage."
+        )
+    elif ruin_prob > 0.05:
+        st.warning(
+            f"**Moderate ruin risk.** {ruin_prob:.1%} of paths hit ruin within {mc_years} years. "
+            f"Expected max drawdown: {median_max_dd:.0%}."
+        )
+    elif mc_leverage > 0:
+        st.success(
+            f"**Low ruin risk.** Only {ruin_prob:.1%} of paths hit ruin over {mc_years} years. "
+            f"Expected CAGR: {median_cagr:.1%}, expected max drawdown: {median_max_dd:.0%}."
+        )
+
+    # ── Fan chart ──
+    days = np.arange(equity_paths.shape[0])
+    years_axis = days / 252
+
+    p5 = np.percentile(equity_paths, 5, axis=1)
+    p25 = np.percentile(equity_paths, 25, axis=1)
+    p50 = np.percentile(equity_paths, 50, axis=1)
+    p75 = np.percentile(equity_paths, 75, axis=1)
+    p95 = np.percentile(equity_paths, 95, axis=1)
+
+    fig_mc = go.Figure()
+
+    # 5th–95th percentile band
+    fig_mc.add_trace(go.Scatter(
+        x=np.concatenate([years_axis, years_axis[::-1]]),
+        y=np.concatenate([p95, p5[::-1]]),
+        fill="toself",
+        fillcolor="rgba(0,204,150,0.1)",
+        line=dict(width=0),
+        name="5th–95th percentile",
+        hoverinfo="skip",
+    ))
+
+    # 25th–75th percentile band
+    fig_mc.add_trace(go.Scatter(
+        x=np.concatenate([years_axis, years_axis[::-1]]),
+        y=np.concatenate([p75, p25[::-1]]),
+        fill="toself",
+        fillcolor="rgba(0,204,150,0.25)",
+        line=dict(width=0),
+        name="25th–75th percentile",
+        hoverinfo="skip",
+    ))
+
+    # Median path
+    fig_mc.add_trace(go.Scatter(
+        x=years_axis, y=p50,
+        mode="lines",
+        name="Median path",
+        line=dict(color="#00CC96", width=2.5),
+    ))
+
+    # Ruin level
+    fig_mc.add_trace(go.Scatter(
+        x=[0, years_axis[-1]],
+        y=[mc_ruin_level, mc_ruin_level],
+        mode="lines",
+        name="Ruin threshold",
+        line=dict(color="#EF553B", width=2, dash="dash"),
+    ))
+
+    # Starting NLV
+    fig_mc.add_trace(go.Scatter(
+        x=[0, years_axis[-1]],
+        y=[nlv, nlv],
+        mode="lines",
+        name="Starting NLV",
+        line=dict(color="gray", width=1, dash="dot"),
+    ))
+
+    fig_mc.update_layout(
+        title=f"Simulated Portfolio Equity ({mc_n_paths:,} paths, {mc_leverage:.2f}x leverage)",
+        xaxis_title="Years",
+        yaxis_title="Portfolio Value ($)",
+        yaxis_tickprefix="$",
+        hovermode="x unified",
+        template="plotly_dark",
+        height=450,
+    )
+
+    st.plotly_chart(fig_mc, use_container_width=True)
+
+    with st.expander("Simulation Parameters"):
+        st.markdown(f"""
+| Parameter | Value |
+|---|---|
+| Paths simulated | {mc_n_paths:,} |
+| Horizon | {mc_years} years ({mc_n_days:,} trading days) |
+| Leverage (current) | {mc_leverage:.2f}x |
+| Expected return (μ) | {expected_return:.1f}% annual → {mc_mu_daily * 100:.4f}% daily |
+| Volatility (σ) | {annual_volatility:.1f}% annual → {mc_sigma_daily * 100:.3f}% daily |
+| Risk-free rate | {risk_free_rate:.2f}% annual → {mc_rf_daily * 100:.5f}% daily |
+| Ruin threshold | ${mc_ruin_level:,.0f} ({mc_ruin_pct:.0f}% of NLV) |
+| **Median CAGR** | **{median_cagr:.2%}** |
+| **Median max drawdown** | **{median_max_dd:.1%}** |
+| **Ruin probability** | **{ruin_prob:.2%}** ({ruin_count:,} paths) |
+| Median terminal value | ${median_terminal:,.0f} |
+| 5th pctl terminal | ${np.percentile(final_values, 5):,.0f} |
+| 95th pctl terminal | ${np.percentile(final_values, 95):,.0f} |
+""")
+
+st.divider()
+
 # ── Portfolio Insights ──
 st.header("Portfolio Insights")
 
