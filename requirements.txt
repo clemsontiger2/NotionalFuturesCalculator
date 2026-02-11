@@ -3,4 +3,3 @@ yfinance
 numpy
 pandas
 plotly
-anthropic
