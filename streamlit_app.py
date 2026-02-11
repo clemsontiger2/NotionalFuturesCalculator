@@ -430,10 +430,10 @@ for name, symbol, multiplier, description in MICRO_CONTRACTS:
             "Contract": name,
             "Price": price,
             "Qty": qty,
-            "Notional": notional,
+            "Notional": round(notional, 2),
             "Beta": beta,
-            "Beta-Wtd Delta": beta_delta,
-            "Margin": contract_margin,
+            "Beta-Wtd Delta": round(beta_delta, 2),
+            "Margin": round(contract_margin, 2),
         })
 
     with cols[5]:
