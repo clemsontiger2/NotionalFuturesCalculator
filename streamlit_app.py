@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from io import BytesIO
 
 import numpy as np
 import pandas as pd
@@ -2014,6 +2015,179 @@ else:
         summary_text = "\n".join(lines)
         st.code(summary_text, language="text")
         st.caption("Copy the summary above and paste into ChatGPT, Claude, or any AI assistant for deeper analysis.")
+
+st.divider()
+
+# ── Export to Excel ──
+st.header("Export to Excel")
+st.write("Download your full portfolio analysis as a multi-sheet Excel workbook.")
+
+if st.button("Generate Excel Report", type="primary"):
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        # Sheet 1: Positions
+        if contract_rows:
+            pos_df = pd.DataFrame(contract_rows)
+            pos_df = pos_df[["Symbol", "Contract", "asset_class", "Price", "Qty",
+                             "Notional", "Beta", "Beta-Wtd Delta", "Margin"]]
+            pos_df.rename(columns={"asset_class": "Asset Class"}, inplace=True)
+            pos_df.to_excel(writer, sheet_name="Positions", index=False)
+
+        # Sheet 2: Portfolio Summary
+        summary_data = {
+            "Metric": [
+                "Net Liquidation Value",
+                "Total Notional Exposure",
+                "Beta-Weighted Delta (SPX)",
+                "Total Maintenance Margin",
+                "Margin Mode",
+                "Beta Source",
+                "Active Contracts",
+                "Total Contracts",
+            ],
+            "Value": [
+                nlv,
+                total_notional,
+                total_beta_weighted_delta,
+                total_margin,
+                margin_mode,
+                beta_source + (f" ({beta_window}d)" if beta_source == "Rolling (live)" else ""),
+                sum(1 for r in contract_rows),
+                sum(r["Qty"] for r in contract_rows) if contract_rows else 0,
+            ],
+        }
+        pd.DataFrame(summary_data).to_excel(writer, sheet_name="Summary", index=False)
+
+        # Sheet 3: Asset Class Breakdown
+        class_rows = []
+        for cls in ["Equity", "Energy", "Metal", "Crypto", "FX", "Rates"]:
+            if cls in class_breakdown and class_breakdown[cls]["qty"] > 0:
+                d = class_breakdown[cls]
+                pct = d["notional"] / total_notional * 100 if total_notional > 0 else 0
+                class_rows.append({
+                    "Asset Class": cls,
+                    "Notional": round(d["notional"], 2),
+                    "% of Portfolio": round(pct, 1),
+                    "Beta-Wtd Delta": round(d["beta_delta"], 2),
+                    "Margin": round(d["margin"], 2),
+                    "Contracts": d["qty"],
+                })
+        if class_rows:
+            pd.DataFrame(class_rows).to_excel(writer, sheet_name="Asset Classes", index=False)
+
+        # Sheet 4: Kelly Analysis
+        kelly_data = {
+            "Parameter": [
+                "Expected Return (μ)", "Risk-Free Rate (r)", "Excess Return (μ-r)",
+                "Volatility (σ)", "Variance (σ²)",
+                "Full Kelly Leverage", "Half Kelly Leverage", "Current Leverage",
+                "Kelly Status", "Kelly-Optimal Notional", "Half-Kelly Notional",
+            ],
+            "Value": [
+                f"{expected_return:.1f}%", f"{risk_free_rate:.2f}%",
+                f"{expected_return - risk_free_rate:.2f}%",
+                f"{annual_volatility:.1f}%", f"{annual_volatility**2 / 100:.2f}%",
+                f"{kelly_optimal:.2f}x", f"{half_kelly:.2f}x", f"{current_leverage:.2f}x",
+                status_label, f"${nlv * kelly_optimal:,.2f}", f"${nlv * half_kelly:,.2f}",
+            ],
+        }
+        pd.DataFrame(kelly_data).to_excel(writer, sheet_name="Kelly Analysis", index=False)
+
+        # Sheet 5: Risk Metrics
+        risk_data = {
+            "Metric": [
+                "True Leverage (Beta-Adj)", "Raw Leverage",
+                "1-Day VaR (95%)", "VaR % of NLV",
+                "Margin Buffer", "Excess Liquidity",
+                "Total Maint. Margin",
+            ],
+            "Value": [
+                f"{true_leverage:.2f}x", f"{raw_leverage:.2f}x",
+                f"${portfolio_var_95:,.2f}",
+                f"{portfolio_var_95 / nlv * 100:.2f}%" if nlv > 0 else "N/A",
+                f"{dist_to_margin_call:.2%}",
+                f"${excess_liquidity:,.0f}", f"${total_margin:,.0f}",
+            ],
+        }
+        pd.DataFrame(risk_data).to_excel(writer, sheet_name="Risk Metrics", index=False)
+
+        # Sheet 6: Trailing Stops
+        if daily_vol > 0 and contract_rows:
+            _dm = daily_vol * 100
+            stop_export = []
+            for row in contract_rows:
+                sym = row["Symbol"]
+                p = row["Price"]
+                spec = CONTRACT_SPECS.get(sym, {})
+                tick_inc = spec.get("tick_inc", 0)
+                tp = p * (1 - _dm * 2 / 100)
+                lp = p * (1 - _dm * 3 / 100)
+                if tick_inc > 0:
+                    tp = _snap_to_tick(tp, tick_inc)
+                    lp = _snap_to_tick(lp, tick_inc)
+                stop_export.append({
+                    "Symbol": sym,
+                    "Current Price": p,
+                    f"Tight Stop (2x={_dm*2:.2f}%)": round(tp, 6),
+                    f"Loose Stop (3x={_dm*3:.2f}%)": round(lp, 6),
+                })
+            pd.DataFrame(stop_export).to_excel(writer, sheet_name="Trailing Stops", index=False)
+
+        # Sheet 7: Contract Specifications
+        specs_export = []
+        for name, symbol, multiplier, _desc in MICRO_CONTRACTS:
+            spec = CONTRACT_SPECS.get(symbol, {})
+            exp = next_expiration(symbol, date.today())
+            specs_export.append({
+                "Contract": name,
+                "Symbol": symbol,
+                "Multiplier": multiplier,
+                "Asset Class": spec.get("asset_class", ""),
+                "SPX Beta": live_betas.get(symbol, spec.get("spx_beta", 0)),
+                "Tick Size": spec.get("tick_size", ""),
+                "Tick Value": spec.get("tick_value", 0),
+                "Maint. Margin": spec.get("maint_margin", 0),
+                "Next Expiration": exp.strftime("%Y-%m-%d") if exp else "",
+                "DTE": (exp - date.today()).days if exp else "",
+            })
+        pd.DataFrame(specs_export).to_excel(writer, sheet_name="Contract Specs", index=False)
+
+        # Sheet 8: Monte Carlo Results (if available)
+        try:
+            mc_data = {
+                "Parameter": [
+                    "Paths", "Horizon", "Leverage", "Distribution",
+                    "Jump Risk", "Ruin Threshold",
+                    "Median CAGR", "5th Pctl CAGR", "95th Pctl CAGR",
+                    "Median Max Drawdown", "Worst 5% Max Drawdown",
+                    "Ruin Probability", "Ruin Paths",
+                    "Median Terminal Value", "5th Pctl Terminal", "95th Pctl Terminal",
+                ],
+                "Value": [
+                    mc_n_paths, f"{mc_years} years", f"{mc_leverage:.2f}x",
+                    mc_distribution + (f" (df={mc_df})" if mc_distribution == "Student-t (fat tails)" else ""),
+                    f"On — {mc_jump_intensity:.1f}/yr, avg {mc_jump_mean:.0%}" if mc_jump_risk else "Off",
+                    f"${mc_ruin_level:,.0f} ({mc_ruin_pct:.0f}%)",
+                    f"{median_cagr:.2%}", f"{p5_cagr:.2%}", f"{p95_cagr:.2%}",
+                    f"{median_max_dd:.1%}", f"{p95_max_dd:.1%}",
+                    f"{ruin_prob:.2%}", ruin_count,
+                    f"${median_terminal:,.0f}",
+                    f"${np.percentile(final_values, 5):,.0f}",
+                    f"${np.percentile(final_values, 95):,.0f}",
+                ],
+            }
+            pd.DataFrame(mc_data).to_excel(writer, sheet_name="Monte Carlo", index=False)
+        except NameError:
+            pass
+
+    buf.seek(0)
+    st.download_button(
+        label="Download Excel Report",
+        data=buf,
+        file_name=f"portfolio_report_{date.today().strftime('%Y%m%d')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    st.success("Report generated! Click the download button above.")
 
 st.divider()
 

@@ -3,3 +3,4 @@ yfinance
 numpy
 pandas
 plotly
+openpyxl
