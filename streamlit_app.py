@@ -1148,11 +1148,11 @@ with risk_cols[1]:
 
 with risk_cols[2]:
     st.metric(
-        label="Dist. to Margin Call",
+        label="Margin Buffer",
         value=f"{dist_to_margin_call:.1%}" if total_notional > 0 else "No positions",
-        delta=f"${excess_liquidity:,.0f} excess liquidity" if total_margin > 0 else None,
+        delta=f"\\${excess_liquidity:,.0f} excess liquidity" if total_margin > 0 else None,
         delta_color="normal",
-        help="The portfolio must drop by this percentage to trigger a margin call.",
+        help="How far your portfolio can drop before a margin call. Higher = safer.",
     )
 
 # Warnings
@@ -1188,7 +1188,7 @@ with st.expander("Risk Calculation Details"):
 | **1-Day VaR (95%)** | **${portfolio_var_95:,.2f}** |
 | Total Maint. Margin | ${total_margin:,.0f} |
 | Excess Liquidity | ${excess_liquidity:,.0f} |
-| **Dist. to Margin Call** | **{dist_to_margin_call:.2%}** |
+| **Margin Buffer** | **{dist_to_margin_call:.2%}** |
 """)
 
 # ── Volatility-Based Trailing Stops ──
@@ -1252,12 +1252,16 @@ if total_notional > 0 and nlv > 0 and daily_vol > 0:
                     loose_price = _snap_to_tick(loose_price, tick_inc)
                 stop_data.append({
                     "Symbol": sym,
-                    "Current Price": p,
-                    f"Tight Stop ({tight_stop_pct:.1f}%)": tight_price,
-                    f"Loose Stop ({loose_stop_pct:.1f}%)": loose_price,
+                    "Price": p,
+                    "Tight Stop": tight_price,
+                    "Loose Stop": loose_price,
                 })
             stop_df = pd.DataFrame(stop_data)
             st.dataframe(stop_df, use_container_width=True, hide_index=True)
+            st.caption(
+                f"Tight Stop = 2x daily vol ({tight_stop_pct:.2f}%). "
+                f"Loose Stop = 3x daily vol ({loose_stop_pct:.2f}%). "
+            )
             st.caption(
                 "Stop prices are based on the portfolio-level volatility assumption. "
                 "Individual contracts may have different realized volatility — "
@@ -1981,7 +1985,7 @@ else:
         lines.append("=== RISK METRICS ===")
         lines.append(f"True Leverage (Beta-Adj): {true_leverage:.2f}x | Raw: {raw_leverage:.2f}x")
         lines.append(f"1-Day VaR (95%): ${portfolio_var_95:,.2f}")
-        lines.append(f"Distance to Margin Call: {dist_to_margin_call:.1%}")
+        lines.append(f"Margin Buffer: {dist_to_margin_call:.1%}")
         lines.append(f"Excess Liquidity: ${excess_liquidity:,.0f}")
         lines.append("")
         lines.append("=== VOLATILITY-BASED TRAILING STOPS ===")
