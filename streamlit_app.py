@@ -317,6 +317,7 @@ live_prices = fetch_all_prices()
 st.divider()
 
 # Global controls
+st.subheader("Settings")
 col_controls_1, col_controls_2, col_controls_3 = st.columns([1, 1, 2])
 with col_controls_1:
     default_qty = st.number_input(
@@ -397,6 +398,8 @@ elif margin_mode == "Custom (per contract)":
                 )
 
 st.divider()
+
+st.subheader("Contracts")
 
 # Group contracts by asset class for tabbed display
 _CLASS_ORDER = ["Equity", "Energy", "Metal", "Crypto", "FX", "Rates"]
