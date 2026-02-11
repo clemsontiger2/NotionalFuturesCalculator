@@ -2,6 +2,7 @@ from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
 
@@ -820,6 +821,85 @@ with st.expander("Risk Calculation Details"):
 | Excess Liquidity | ${excess_liquidity:,.0f} |
 | **Dist. to Margin Call** | **{dist_to_margin_call:.2%}** |
 """)
+
+# ── Portfolio Stress Test ──
+if total_notional > 0 and nlv > 0:
+    st.subheader("Portfolio Stress Test")
+
+    moves = np.linspace(-0.30, 0.30, 61)
+    pnl = total_beta_weighted_delta * moves
+    equity_curve = nlv + pnl
+
+    fig = go.Figure()
+
+    # Projected equity line
+    fig.add_trace(go.Scatter(
+        x=moves * 100,
+        y=equity_curve,
+        mode="lines",
+        name="Projected Equity",
+        line=dict(color="#00CC96", width=3),
+    ))
+
+    # Margin call level
+    fig.add_trace(go.Scatter(
+        x=[moves[0] * 100, moves[-1] * 100],
+        y=[total_margin, total_margin],
+        mode="lines",
+        name="Margin Call Level",
+        line=dict(color="#EF553B", width=2, dash="dash"),
+    ))
+
+    # Current position marker
+    fig.add_trace(go.Scatter(
+        x=[0],
+        y=[nlv],
+        mode="markers+text",
+        text=["Current"],
+        textposition="top center",
+        marker=dict(size=10, color="white"),
+        name="Current Status",
+    ))
+
+    # 1-Day VaR marker
+    if portfolio_var_95 > 0:
+        var_move_pct = -portfolio_var_95 / total_beta_weighted_delta * 100 if total_beta_weighted_delta != 0 else 0
+        fig.add_trace(go.Scatter(
+            x=[var_move_pct],
+            y=[nlv - portfolio_var_95],
+            mode="markers+text",
+            text=["95% VaR"],
+            textposition="bottom center",
+            marker=dict(size=8, color="#FFA15A", symbol="diamond"),
+            name="1-Day VaR (95%)",
+        ))
+
+    fig.update_layout(
+        title="Projected Account Value vs. Market Move (SPX-equivalent)",
+        xaxis_title="Market Move (%)",
+        yaxis_title="Account Equity ($)",
+        yaxis_tickprefix="$",
+        xaxis_ticksuffix="%",
+        hovermode="x unified",
+        template="plotly_dark",
+        height=450,
+    )
+
+    # Liquidation zone shading
+    if min(equity_curve) < total_margin:
+        margin_cross_pct = -dist_to_margin_call * 100
+        fig.add_vrect(
+            x0=margin_cross_pct,
+            x1=moves[0] * 100,
+            fillcolor="red",
+            opacity=0.15,
+            layer="below",
+            line_width=0,
+            annotation_text="LIQUIDATION ZONE",
+            annotation_position="top left",
+        )
+
+    st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
 
