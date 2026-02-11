@@ -259,23 +259,23 @@ def next_expiration(symbol, ref_date=None):
 # maint_margin: approximate maintenance margin per contract (subject to change)
 
 CONTRACT_SPECS = {
-    "MES": {"tick_size": "0.25 pts",  "tick_value": 1.25,  "maint_margin": 1500},
-    "MNQ": {"tick_size": "0.25 pts",  "tick_value": 0.50,  "maint_margin": 2100},
-    "MYM": {"tick_size": "1.0 pt",    "tick_value": 0.50,  "maint_margin": 1000},
-    "M2K": {"tick_size": "0.10 pts",  "tick_value": 0.50,  "maint_margin": 750},
-    "MCL": {"tick_size": "$0.01",     "tick_value": 1.00,  "maint_margin": 950},
-    "MGC": {"tick_size": "$0.10",     "tick_value": 1.00,  "maint_margin": 1550},
-    "SIL": {"tick_size": "$0.005",    "tick_value": 5.00,  "maint_margin": 1900},
-    "MHG": {"tick_size": "$0.0005",   "tick_value": 1.25,  "maint_margin": 700},
-    "MBT": {"tick_size": "$5.00",     "tick_value": 0.50,  "maint_margin": 5100},
-    "MET": {"tick_size": "$0.50",     "tick_value": 0.05,  "maint_margin": 350},
-    "M6E": {"tick_size": "$0.0001",   "tick_value": 1.25,  "maint_margin": 290},
-    "M6B": {"tick_size": "$0.0001",   "tick_value": 0.625, "maint_margin": 200},
-    "M6A": {"tick_size": "$0.0001",   "tick_value": 1.00,  "maint_margin": 180},
-    "M6J": {"tick_size": "¥0.01",     "tick_value": 1.25,  "maint_margin": 250},
-    "M6C": {"tick_size": "$0.0001",   "tick_value": 1.00,  "maint_margin": 160},
-    "10Y": {"tick_size": "0.01 pts",  "tick_value": 10.00, "maint_margin": 440},
-    "2YY": {"tick_size": "0.01 pts",  "tick_value": 10.00, "maint_margin": 340},
+    "MES": {"tick_size": "0.25 pts",  "tick_inc": 0.25,    "tick_value": 1.25,  "maint_margin": 1500},
+    "MNQ": {"tick_size": "0.25 pts",  "tick_inc": 0.25,    "tick_value": 0.50,  "maint_margin": 2100},
+    "MYM": {"tick_size": "1.0 pt",    "tick_inc": 1.0,     "tick_value": 0.50,  "maint_margin": 1000},
+    "M2K": {"tick_size": "0.10 pts",  "tick_inc": 0.10,    "tick_value": 0.50,  "maint_margin": 750},
+    "MCL": {"tick_size": "$0.01",     "tick_inc": 0.01,    "tick_value": 1.00,  "maint_margin": 950},
+    "MGC": {"tick_size": "$0.10",     "tick_inc": 0.10,    "tick_value": 1.00,  "maint_margin": 1550},
+    "SIL": {"tick_size": "$0.005",    "tick_inc": 0.005,   "tick_value": 5.00,  "maint_margin": 1900},
+    "MHG": {"tick_size": "$0.0005",   "tick_inc": 0.0005,  "tick_value": 1.25,  "maint_margin": 700},
+    "MBT": {"tick_size": "$5.00",     "tick_inc": 5.0,     "tick_value": 0.50,  "maint_margin": 5100},
+    "MET": {"tick_size": "$0.50",     "tick_inc": 0.50,    "tick_value": 0.05,  "maint_margin": 350},
+    "M6E": {"tick_size": "$0.0001",   "tick_inc": 0.0001,  "tick_value": 1.25,  "maint_margin": 290},
+    "M6B": {"tick_size": "$0.0001",   "tick_inc": 0.0001,  "tick_value": 0.625, "maint_margin": 200},
+    "M6A": {"tick_size": "$0.0001",   "tick_inc": 0.0001,  "tick_value": 1.00,  "maint_margin": 180},
+    "M6J": {"tick_size": "¥0.01",     "tick_inc": 0.000001, "tick_value": 1.25, "maint_margin": 250},
+    "M6C": {"tick_size": "$0.0001",   "tick_inc": 0.0001,  "tick_value": 1.00,  "maint_margin": 160},
+    "10Y": {"tick_size": "0.01 pts",  "tick_inc": 0.01,    "tick_value": 10.00, "maint_margin": 440},
+    "2YY": {"tick_size": "0.01 pts",  "tick_inc": 0.01,    "tick_value": 10.00, "maint_margin": 340},
 }
 
 
@@ -300,6 +300,13 @@ MICRO_CONTRACTS = [
     ("Micro 10-Year Yield", "10Y", 1000, "$1,000 x yield index"),
     ("Micro 2-Year Yield", "2YY", 1000, "$1,000 x yield index"),
 ]
+
+def _snap_to_tick(price, tick_inc):
+    """Round a price to the nearest tick increment."""
+    if tick_inc <= 0:
+        return price
+    return round(round(price / tick_inc) * tick_inc, 10)
+
 
 # Fetch live prices
 live_prices = fetch_all_prices()
@@ -331,11 +338,25 @@ header_cols[5].markdown("**Notional Value**")
 st.divider()
 
 total_notional = 0.0
+total_margin = 0.0
 
 for name, symbol, multiplier, description in MICRO_CONTRACTS:
     cols = st.columns([2, 1, 1.2, 1.2, 1, 1.5])
 
+    spec = CONTRACT_SPECS.get(symbol, {})
+    tick_inc = spec.get("tick_inc", 0)
     fetched_price = live_prices.get(symbol, FALLBACK_PRICES[symbol])
+    # Snap fetched price to the nearest valid tick increment
+    if tick_inc > 0:
+        fetched_price = _snap_to_tick(fetched_price, tick_inc)
+
+    # Determine decimal places from tick increment
+    if tick_inc > 0:
+        tick_str = f"{tick_inc:.10f}".rstrip("0")
+        decimals = len(tick_str.split(".")[-1]) if "." in tick_str else 0
+    else:
+        decimals = 4 if fetched_price < 1 else 2
+    fmt = f"%.{decimals}f"
 
     with cols[0]:
         st.markdown(f"**{name}**")
@@ -355,8 +376,8 @@ for name, symbol, multiplier, description in MICRO_CONTRACTS:
             f"Price ({symbol})",
             min_value=0.0,
             value=fetched_price,
-            step=fetched_price * 0.001,
-            format="%.4f" if fetched_price < 1 else "%.2f",
+            step=tick_inc if tick_inc > 0 else fetched_price * 0.001,
+            format=fmt,
             label_visibility="collapsed",
             key=f"price_{symbol}",
         )
@@ -374,6 +395,7 @@ for name, symbol, multiplier, description in MICRO_CONTRACTS:
 
     notional = price * multiplier * qty
     total_notional += notional
+    total_margin += spec.get("maint_margin", 0) * qty
 
     with cols[5]:
         st.markdown(f"### ${notional:,.2f}")
@@ -382,7 +404,7 @@ st.divider()
 
 # Summary
 st.subheader("Portfolio Summary")
-summary_cols = st.columns(3)
+summary_cols = st.columns(4)
 with summary_cols[0]:
     active_contracts = sum(
         1
@@ -398,6 +420,8 @@ with summary_cols[2]:
         for _, symbol, *_ in MICRO_CONTRACTS
     )
     st.metric("Total Contracts", total_qty)
+with summary_cols[3]:
+    st.metric("Total Maint. Margin", f"${total_margin:,.0f}")
 
 st.divider()
 
@@ -461,6 +485,12 @@ with kelly_input_cols[0]:
         format="%.2f",
         help="Your total account equity / net liquidation value.",
     )
+    if total_margin > 0:
+        margin_pct = (total_margin / nlv * 100) if nlv > 0 else 0.0
+        st.info(
+            f"Total maintenance margin from contracts above: **${total_margin:,.0f}** "
+            f"({margin_pct:.1f}% of NLV)"
+        )
     exposure_method = st.radio(
         "Exposure method",
         [
