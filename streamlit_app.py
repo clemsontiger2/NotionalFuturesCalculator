@@ -1821,6 +1821,8 @@ else:
         lines.append(f"Total Notional Exposure: ${total_notional:,.2f}")
         lines.append(f"Beta-Weighted Delta (SPX): ${total_beta_weighted_delta:,.2f}")
         lines.append(f"Total Maintenance Margin: ${total_margin:,.0f}")
+        lines.append(f"Beta Source: {beta_source}" + (f" ({beta_window}-day window)" if beta_source == "Rolling (live)" else ""))
+        lines.append(f"Margin Mode: {margin_mode}")
         lines.append("")
         lines.append("=== ASSET CLASS BREAKDOWN ===")
         for cls in ["Equity", "Energy", "Metal", "Crypto", "FX", "Rates"]:
@@ -1842,6 +1844,28 @@ else:
         lines.append(f"1-Day VaR (95%): ${portfolio_var_95:,.2f}")
         lines.append(f"Distance to Margin Call: {dist_to_margin_call:.1%}")
         lines.append(f"Excess Liquidity: ${excess_liquidity:,.0f}")
+        lines.append("")
+        lines.append("=== VOLATILITY-BASED TRAILING STOPS ===")
+        if daily_vol > 0:
+            _dm = daily_vol * 100
+            lines.append(f"Daily Expected Move: {_dm:.2f}% (from {annual_volatility:.1f}% annual)")
+            lines.append(f"Tight Stop (2x): {_dm * 2:.2f}% = ${nlv * _dm * 2 / 100:,.0f}")
+            lines.append(f"Loose Stop (3x): {_dm * 3:.2f}% = ${nlv * _dm * 3 / 100:,.0f}")
+        else:
+            lines.append("N/A — no volatility data")
+        lines.append("")
+        lines.append("=== MONTE CARLO SIMULATION ===")
+        try:
+            lines.append(f"Paths: {mc_n_paths:,} | Horizon: {mc_years} years | Leverage: {mc_leverage:.2f}x")
+            lines.append(f"Expected Geometric CAGR: {median_cagr:.2%} (5th pctl: {p5_cagr:.2%}, 95th: {p95_cagr:.2%})")
+            lines.append(f"Expected Max Drawdown: {median_max_dd:.1%} (worst 5%: {p95_max_dd:.1%})")
+            lines.append(f"Ruin Probability ({mc_years}yr): {ruin_prob:.2%} ({ruin_count:,} of {mc_n_paths:,} paths)")
+            lines.append(f"Ruin Threshold: ${mc_ruin_level:,.0f} ({mc_ruin_pct:.0f}% of NLV)")
+            lines.append(f"Median Terminal Value: ${median_terminal:,.0f}")
+            lines.append(f"5th Percentile Terminal: ${np.percentile(final_values, 5):,.0f}")
+            lines.append(f"95th Percentile Terminal: ${np.percentile(final_values, 95):,.0f}")
+        except NameError:
+            lines.append("N/A — simulation requires positions, NLV, and volatility")
         summary_text = "\n".join(lines)
         st.code(summary_text, language="text")
         st.caption("Copy the summary above and paste into ChatGPT, Claude, or any AI assistant for deeper analysis.")
