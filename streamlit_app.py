@@ -919,6 +919,73 @@ with st.expander("Kelly Calculation Details"):
 | Half-Kelly Notional | ${nlv * half_kelly:,.2f} |
 """)
 
+    st.markdown("---")
+    st.markdown("### Why Over-Kelly Destroys Long-Term Growth")
+    st.markdown(r"""
+**The key insight:** Compounding returns are *geometric*, not arithmetic.
+Volatility creates a **drag** on compound growth that most people underestimate.
+
+The expected geometric (compound) growth rate of a leveraged portfolio is:
+
+$$g \approx L(\mu - r) + r - \tfrac{1}{2} L^2 \sigma^2$$
+
+Where **L** is your leverage ratio. Notice two competing forces:
+
+- **L(μ − r)**: Leverage *multiplies* your excess return — more leverage, more return
+- **½ L² σ²**: Leverage *squares* your volatility drag — the penalty grows **quadratically**
+
+At low leverage, the linear return benefit dominates. But as you increase leverage,
+the quadratic drag catches up and eventually overwhelms the return. The Kelly
+optimal is the exact point where these forces balance. Beyond it, **every
+additional unit of leverage reduces your long-term compound growth.**
+
+At 2× Kelly, the volatility drag exactly cancels the excess return — your
+expected geometric growth drops to **zero**, equivalent to holding T-bills.
+Above 2× Kelly, you're expected to **lose money** over time despite the
+underlying asset having a positive return.
+""")
+
+    # Concrete leverage comparison table
+    st.markdown("### Leverage Impact on Your Portfolio")
+    leverage_levels = [0.5, 0.75, 1.0, half_kelly, kelly_optimal, kelly_optimal * 1.5, kelly_optimal * 2.0]
+    leverage_labels = ["0.50x", "0.75x", "1.00x", f"{half_kelly:.2f}x (½K)", f"{kelly_optimal:.2f}x (1K)", f"{kelly_optimal * 1.5:.2f}x (1.5K)", f"{kelly_optimal * 2:.2f}x (2K)"]
+    lev_rows = []
+    for lev, label in zip(leverage_levels, leverage_labels):
+        g_arith = lev * mu_excess + (risk_free_rate / 100)
+        vol_drag = 0.5 * (lev ** 2) * (sigma ** 2)
+        g_geo = g_arith - vol_drag
+        lev_rows.append({
+            "Leverage": label,
+            "Arithmetic Return": f"{g_arith * 100:.2f}%",
+            "Volatility Drag": f"-{vol_drag * 100:.2f}%",
+            "Geometric Growth (g)": f"{g_geo * 100:.2f}%",
+        })
+    lev_df = pd.DataFrame(lev_rows)
+    st.dataframe(lev_df, use_container_width=True, hide_index=True)
+    st.caption(
+        "Arithmetic return grows linearly with leverage. Volatility drag grows "
+        "quadratically (L²). At Full Kelly, geometric growth is maximized. "
+        "At 2× Kelly, geometric growth is approximately zero."
+    )
+
+    st.markdown(r"""
+### Why Half Kelly?
+
+Full Kelly maximizes long-term growth but assumes **perfect knowledge** of
+μ and σ. In reality:
+
+- **Parameter uncertainty**: Small errors in estimated return or volatility
+  can push you into the over-Kelly zone without realizing it
+- **Extreme drawdowns**: Full Kelly portfolios regularly experience **50%+
+  drawdowns** — psychologically and practically devastating
+- **Half Kelly captures ~75% of the growth rate** with roughly **half the
+  volatility and drawdown** — a much better risk/reward tradeoff
+- Most institutional allocators and professional traders use Half Kelly or less
+
+**Rule of thumb:** If you're unsure about your estimates, Half Kelly is
+the maximum leverage you should consider.
+""")
+
 st.divider()
 
 # ── Risk Analysis ──
