@@ -351,6 +351,7 @@ total_notional = 0.0
 total_margin = 0.0
 total_beta_weighted_delta = 0.0
 class_breakdown = {}  # {class: {"notional": ..., "beta_delta": ..., "margin": ..., "qty": ...}}
+contract_rows = []  # per-contract data for grouped display
 
 for name, symbol, multiplier, description in MICRO_CONTRACTS:
     cols = st.columns([2, 1, 1.2, 1.2, 1, 1.5])
@@ -422,6 +423,19 @@ for name, symbol, multiplier, description in MICRO_CONTRACTS:
     class_breakdown[cls]["margin"] += contract_margin
     class_breakdown[cls]["qty"] += qty
 
+    if qty > 0:
+        contract_rows.append({
+            "asset_class": cls,
+            "Symbol": symbol,
+            "Contract": name,
+            "Price": price,
+            "Qty": qty,
+            "Notional": notional,
+            "Beta": beta,
+            "Beta-Wtd Delta": beta_delta,
+            "Margin": contract_margin,
+        })
+
     with cols[5]:
         st.markdown(f"### ${notional:,.2f}")
 
@@ -450,24 +464,35 @@ with summary_cols[3]:
 with summary_cols[4]:
     st.metric("Total Maint. Margin", f"${total_margin:,.0f}")
 
-# Asset class breakdown
-if any(v["qty"] > 0 for v in class_breakdown.values()):
+# Asset class breakdown — grouped accordion
+if contract_rows:
+    st.subheader("Portfolio Composition")
     class_order = ["Equity", "Energy", "Metal", "Crypto", "FX", "Rates"]
-    breakdown_rows = []
+    contracts_df = pd.DataFrame(contract_rows)
     for cls in class_order:
-        if cls in class_breakdown and class_breakdown[cls]["qty"] > 0:
-            d = class_breakdown[cls]
-            breakdown_rows.append({
-                "Asset Class": cls,
-                "Contracts": d["qty"],
-                "Notional": f"${d['notional']:,.2f}",
-                "Beta-Wtd Delta": f"${d['beta_delta']:,.2f}",
-                "Maint. Margin": f"${d['margin']:,.0f}",
-                "% of Notional": f"{d['notional'] / total_notional * 100:.1f}%" if total_notional > 0 else "—",
-            })
-    if breakdown_rows:
-        st.caption("Breakdown by Asset Class")
-        st.dataframe(pd.DataFrame(breakdown_rows), use_container_width=True, hide_index=True)
+        if cls not in class_breakdown or class_breakdown[cls]["qty"] == 0:
+            continue
+        d = class_breakdown[cls]
+        pct = f"{d['notional'] / total_notional * 100:.1f}%" if total_notional > 0 else ""
+        with st.expander(
+            f"{cls}  —  Notional: ${d['notional']:,.0f}  |  "
+            f"Beta-Wtd: ${d['beta_delta']:,.0f}  |  {pct} of portfolio",
+            expanded=True,
+        ):
+            class_df = contracts_df[contracts_df["asset_class"] == cls][
+                ["Symbol", "Contract", "Price", "Qty", "Notional", "Beta", "Beta-Wtd Delta"]
+            ]
+            st.dataframe(
+                class_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Price": st.column_config.NumberColumn(format="$%.2f"),
+                    "Notional": st.column_config.NumberColumn(format="$%,.2f"),
+                    "Beta-Wtd Delta": st.column_config.NumberColumn(format="$%,.2f"),
+                },
+            )
+            st.caption(f"Maintenance margin for {cls}: ${d['margin']:,.0f}")
 
 st.divider()
 
