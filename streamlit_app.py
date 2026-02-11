@@ -257,25 +257,27 @@ def next_expiration(symbol, ref_date=None):
 # tick_size: minimum price increment
 # tick_value: dollar value of one tick
 # maint_margin: approximate maintenance margin per contract (subject to change)
+# asset_class: asset category for grouping
+# spx_beta: approximate beta relative to S&P 500 (for beta-weighted delta)
 
 CONTRACT_SPECS = {
-    "MES": {"tick_size": "0.25 pts",  "tick_inc": 0.25,    "tick_value": 1.25,  "maint_margin": 1500},
-    "MNQ": {"tick_size": "0.25 pts",  "tick_inc": 0.25,    "tick_value": 0.50,  "maint_margin": 2100},
-    "MYM": {"tick_size": "1.0 pt",    "tick_inc": 1.0,     "tick_value": 0.50,  "maint_margin": 1000},
-    "M2K": {"tick_size": "0.10 pts",  "tick_inc": 0.10,    "tick_value": 0.50,  "maint_margin": 750},
-    "MCL": {"tick_size": "$0.01",     "tick_inc": 0.01,    "tick_value": 1.00,  "maint_margin": 950},
-    "MGC": {"tick_size": "$0.10",     "tick_inc": 0.10,    "tick_value": 1.00,  "maint_margin": 1550},
-    "SIL": {"tick_size": "$0.005",    "tick_inc": 0.005,   "tick_value": 5.00,  "maint_margin": 1900},
-    "MHG": {"tick_size": "$0.0005",   "tick_inc": 0.0005,  "tick_value": 1.25,  "maint_margin": 700},
-    "MBT": {"tick_size": "$5.00",     "tick_inc": 5.0,     "tick_value": 0.50,  "maint_margin": 5100},
-    "MET": {"tick_size": "$0.50",     "tick_inc": 0.50,    "tick_value": 0.05,  "maint_margin": 350},
-    "M6E": {"tick_size": "$0.0001",   "tick_inc": 0.0001,  "tick_value": 1.25,  "maint_margin": 290},
-    "M6B": {"tick_size": "$0.0001",   "tick_inc": 0.0001,  "tick_value": 0.625, "maint_margin": 200},
-    "M6A": {"tick_size": "$0.0001",   "tick_inc": 0.0001,  "tick_value": 1.00,  "maint_margin": 180},
-    "M6J": {"tick_size": "¥0.01",     "tick_inc": 0.000001, "tick_value": 1.25, "maint_margin": 250},
-    "M6C": {"tick_size": "$0.0001",   "tick_inc": 0.0001,  "tick_value": 1.00,  "maint_margin": 160},
-    "10Y": {"tick_size": "0.01 pts",  "tick_inc": 0.01,    "tick_value": 10.00, "maint_margin": 440},
-    "2YY": {"tick_size": "0.01 pts",  "tick_inc": 0.01,    "tick_value": 10.00, "maint_margin": 340},
+    "MES": {"tick_size": "0.25 pts",  "tick_inc": 0.25,    "tick_value": 1.25,  "maint_margin": 1500, "asset_class": "Equity",  "spx_beta": 1.00},
+    "MNQ": {"tick_size": "0.25 pts",  "tick_inc": 0.25,    "tick_value": 0.50,  "maint_margin": 2100, "asset_class": "Equity",  "spx_beta": 1.20},
+    "MYM": {"tick_size": "1.0 pt",    "tick_inc": 1.0,     "tick_value": 0.50,  "maint_margin": 1000, "asset_class": "Equity",  "spx_beta": 0.90},
+    "M2K": {"tick_size": "0.10 pts",  "tick_inc": 0.10,    "tick_value": 0.50,  "maint_margin": 750,  "asset_class": "Equity",  "spx_beta": 1.20},
+    "MCL": {"tick_size": "$0.01",     "tick_inc": 0.01,    "tick_value": 1.00,  "maint_margin": 950,  "asset_class": "Energy",  "spx_beta": 0.60},
+    "MGC": {"tick_size": "$0.10",     "tick_inc": 0.10,    "tick_value": 1.00,  "maint_margin": 1550, "asset_class": "Metal",   "spx_beta": 0.15},
+    "SIL": {"tick_size": "$0.005",    "tick_inc": 0.005,   "tick_value": 5.00,  "maint_margin": 1900, "asset_class": "Metal",   "spx_beta": 0.30},
+    "MHG": {"tick_size": "$0.0005",   "tick_inc": 0.0005,  "tick_value": 1.25,  "maint_margin": 700,  "asset_class": "Metal",   "spx_beta": 0.50},
+    "MBT": {"tick_size": "$5.00",     "tick_inc": 5.0,     "tick_value": 0.50,  "maint_margin": 5100, "asset_class": "Crypto",  "spx_beta": 2.00},
+    "MET": {"tick_size": "$0.50",     "tick_inc": 0.50,    "tick_value": 0.05,  "maint_margin": 350,  "asset_class": "Crypto",  "spx_beta": 2.50},
+    "M6E": {"tick_size": "$0.0001",   "tick_inc": 0.0001,  "tick_value": 1.25,  "maint_margin": 290,  "asset_class": "FX",      "spx_beta": 0.10},
+    "M6B": {"tick_size": "$0.0001",   "tick_inc": 0.0001,  "tick_value": 0.625, "maint_margin": 200,  "asset_class": "FX",      "spx_beta": 0.10},
+    "M6A": {"tick_size": "$0.0001",   "tick_inc": 0.0001,  "tick_value": 1.00,  "maint_margin": 180,  "asset_class": "FX",      "spx_beta": 0.20},
+    "M6J": {"tick_size": "¥0.01",     "tick_inc": 0.000001, "tick_value": 1.25, "maint_margin": 250,  "asset_class": "FX",      "spx_beta": 0.10},
+    "M6C": {"tick_size": "$0.0001",   "tick_inc": 0.0001,  "tick_value": 1.00,  "maint_margin": 160,  "asset_class": "FX",      "spx_beta": 0.15},
+    "10Y": {"tick_size": "0.01 pts",  "tick_inc": 0.01,    "tick_value": 10.00, "maint_margin": 440,  "asset_class": "Rates",   "spx_beta": -0.30},
+    "2YY": {"tick_size": "0.01 pts",  "tick_inc": 0.01,    "tick_value": 10.00, "maint_margin": 340,  "asset_class": "Rates",   "spx_beta": -0.15},
 }
 
 
@@ -347,6 +349,8 @@ st.divider()
 
 total_notional = 0.0
 total_margin = 0.0
+total_beta_weighted_delta = 0.0
+class_breakdown = {}  # {class: {"notional": ..., "beta_delta": ..., "margin": ..., "qty": ...}}
 
 for name, symbol, multiplier, description in MICRO_CONTRACTS:
     cols = st.columns([2, 1, 1.2, 1.2, 1, 1.5])
@@ -402,8 +406,21 @@ for name, symbol, multiplier, description in MICRO_CONTRACTS:
         )
 
     notional = price * multiplier * qty
+    beta = spec.get("spx_beta", 0.0)
+    beta_delta = notional * beta
+    contract_margin = spec.get("maint_margin", 0) * qty
     total_notional += notional
-    total_margin += spec.get("maint_margin", 0) * qty
+    total_margin += contract_margin
+    total_beta_weighted_delta += beta_delta
+
+    # Accumulate per-class
+    cls = spec.get("asset_class", "Other")
+    if cls not in class_breakdown:
+        class_breakdown[cls] = {"notional": 0.0, "beta_delta": 0.0, "margin": 0.0, "qty": 0}
+    class_breakdown[cls]["notional"] += notional
+    class_breakdown[cls]["beta_delta"] += beta_delta
+    class_breakdown[cls]["margin"] += contract_margin
+    class_breakdown[cls]["qty"] += qty
 
     with cols[5]:
         st.markdown(f"### ${notional:,.2f}")
@@ -412,7 +429,7 @@ st.divider()
 
 # Summary
 st.subheader("Portfolio Summary")
-summary_cols = st.columns(4)
+summary_cols = st.columns(5)
 with summary_cols[0]:
     active_contracts = sum(
         1
@@ -423,13 +440,34 @@ with summary_cols[0]:
 with summary_cols[1]:
     st.metric("Total Notional Value", f"${total_notional:,.2f}")
 with summary_cols[2]:
+    st.metric("Beta-Weighted Delta", f"${total_beta_weighted_delta:,.2f}")
+with summary_cols[3]:
     total_qty = sum(
         st.session_state.get(f"qty_{symbol}", default_qty)
         for _, symbol, *_ in MICRO_CONTRACTS
     )
     st.metric("Total Contracts", total_qty)
-with summary_cols[3]:
+with summary_cols[4]:
     st.metric("Total Maint. Margin", f"${total_margin:,.0f}")
+
+# Asset class breakdown
+if any(v["qty"] > 0 for v in class_breakdown.values()):
+    class_order = ["Equity", "Energy", "Metal", "Crypto", "FX", "Rates"]
+    breakdown_rows = []
+    for cls in class_order:
+        if cls in class_breakdown and class_breakdown[cls]["qty"] > 0:
+            d = class_breakdown[cls]
+            breakdown_rows.append({
+                "Asset Class": cls,
+                "Contracts": d["qty"],
+                "Notional": f"${d['notional']:,.2f}",
+                "Beta-Wtd Delta": f"${d['beta_delta']:,.2f}",
+                "Maint. Margin": f"${d['margin']:,.0f}",
+                "% of Notional": f"{d['notional'] / total_notional * 100:.1f}%" if total_notional > 0 else "—",
+            })
+    if breakdown_rows:
+        st.caption("Breakdown by Asset Class")
+        st.dataframe(pd.DataFrame(breakdown_rows), use_container_width=True, hide_index=True)
 
 st.divider()
 
@@ -455,6 +493,8 @@ for name, symbol, multiplier, description in MICRO_CONTRACTS:
     specs_data.append({
         "Contract": name,
         "Symbol": symbol,
+        "Class": spec.get("asset_class", "—"),
+        "SPX Beta": f"{spec.get('spx_beta', 0):.2f}",
         "Tick Size": spec.get("tick_size", "—"),
         "Tick Value": f"${spec.get('tick_value', 0):.2f}",
         "Maint. Margin": f"${spec.get('maint_margin', 0):,.0f}",
@@ -502,6 +542,7 @@ with kelly_input_cols[0]:
     exposure_method = st.radio(
         "Exposure method",
         [
+            "Use beta-weighted delta from contracts above",
             "Use total notional from contracts above",
             "Enter SPX Delta in dollars",
             "Enter SPX Delta in shares",
@@ -532,9 +573,12 @@ with kelly_input_cols[0]:
             f"**{spx_shares:,.2f}** shares x **${spx_price:,.2f}** (SPX) = "
             f"**${spx_delta:,.2f}** dollar delta"
         )
-    else:
+    elif exposure_method == "Use total notional from contracts above":
         spx_delta = total_notional
-        st.info(f"Using total notional from above: **${total_notional:,.2f}**")
+        st.info(f"Using total notional (unweighted): **${total_notional:,.2f}**")
+    else:
+        spx_delta = total_beta_weighted_delta
+        st.info(f"Using beta-weighted delta: **${total_beta_weighted_delta:,.2f}**")
 
 with kelly_input_cols[1]:
     st.subheader("Market Assumptions")
