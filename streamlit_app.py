@@ -823,13 +823,8 @@ with st.expander("Kelly Calculation Details"):
 st.divider()
 
 # ── Risk Analysis ──
-st.header("Risk Analysis")
-st.write(
-    "Key risk metrics derived from your portfolio positions, account size, "
-    "and volatility assumptions from the Kelly section above."
-)
 
-# True (beta-adjusted) leverage
+# Calculate risk metrics first (needed for gauge)
 true_leverage = total_beta_weighted_delta / nlv if nlv > 0 else 0.0
 raw_leverage = total_notional / nlv if nlv > 0 else 0.0
 
@@ -844,6 +839,120 @@ if total_notional > 0:
     dist_to_margin_call = excess_liquidity / total_notional
 else:
     dist_to_margin_call = 1.0
+
+# Determine status
+if true_leverage <= half_kelly:
+    badge_color = "#2d6a4f"
+    status_label = "Conservative"
+    status_msg = "Within safe sizing parameters."
+elif true_leverage <= kelly_optimal:
+    badge_color = "#e67e22"
+    status_label = "Moderate"
+    status_msg = "Between Half Kelly and Full Kelly. Elevated risk."
+else:
+    badge_color = "#e74c3c"
+    status_label = "Aggressive"
+    status_msg = "Exceeding Full Kelly. High risk of drawdown."
+
+# Header with leverage badge
+st.markdown(
+    f"## Risk Analysis &nbsp; "
+    f"<span style='background:{badge_color}; color:white; padding:4px 12px; "
+    f"border-radius:12px; font-size:0.7em; vertical-align:middle;'>"
+    f"{true_leverage:.2f}x Lev</span>",
+    unsafe_allow_html=True,
+)
+
+# Leverage gauge
+if kelly_optimal > 0:
+    max_gauge = max(kelly_optimal * 1.5, true_leverage * 1.2, 0.5)
+    bar_h = 0.4
+
+    fig_gauge = go.Figure()
+
+    # Colored zones
+    fig_gauge.add_shape(
+        type="rect", x0=0, x1=half_kelly, y0=0, y1=bar_h,
+        fillcolor="rgba(0,204,150,0.35)", line_width=0,
+    )
+    fig_gauge.add_shape(
+        type="rect", x0=half_kelly, x1=kelly_optimal, y0=0, y1=bar_h,
+        fillcolor="rgba(255,161,90,0.35)", line_width=0,
+    )
+    fig_gauge.add_shape(
+        type="rect", x0=kelly_optimal, x1=max_gauge, y0=0, y1=bar_h,
+        fillcolor="rgba(239,85,59,0.35)", line_width=0,
+    )
+
+    # Half Kelly dashed marker
+    fig_gauge.add_shape(
+        type="line", x0=half_kelly, x1=half_kelly, y0=-0.05, y1=bar_h + 0.05,
+        line=dict(color="white", width=1.5, dash="dash"),
+    )
+    # Full Kelly solid marker
+    fig_gauge.add_shape(
+        type="line", x0=kelly_optimal, x1=kelly_optimal, y0=-0.05, y1=bar_h + 0.05,
+        line=dict(color="#EF553B", width=2.5),
+    )
+
+    # Current leverage diamond
+    m_color = "#00CC96" if true_leverage <= half_kelly else (
+        "#FFA15A" if true_leverage <= kelly_optimal else "#EF553B"
+    )
+    clamped = min(true_leverage, max_gauge * 0.98)
+    fig_gauge.add_trace(go.Scatter(
+        x=[clamped], y=[bar_h / 2],
+        mode="markers",
+        marker=dict(size=16, color=m_color, symbol="diamond",
+                    line=dict(color="white", width=1.5)),
+        showlegend=False,
+        hovertemplate=f"Current: {true_leverage:.2f}x<extra></extra>",
+    ))
+
+    # Labels
+    fig_gauge.add_annotation(
+        x=0, y=-0.18, text="0x", showarrow=False,
+        font=dict(color="gray", size=11), xanchor="left",
+    )
+    safe_mid = half_kelly / 2 if half_kelly > 0 else 0.1
+    fig_gauge.add_annotation(
+        x=safe_mid, y=bar_h + 0.15, text="Safe Zone", showarrow=False,
+        font=dict(color="gray", size=11),
+    )
+    fig_gauge.add_annotation(
+        x=max_gauge, y=-0.18, text="Max Risk", showarrow=False,
+        font=dict(color="gray", size=11), xanchor="right",
+    )
+    fig_gauge.add_annotation(
+        x=half_kelly, y=-0.18,
+        text=f"Target (½K): {half_kelly:.2f}x", showarrow=False,
+        font=dict(color="#00CC96", size=11),
+    )
+    fig_gauge.add_annotation(
+        x=kelly_optimal, y=-0.18,
+        text=f"Limit (1K): {kelly_optimal:.2f}x", showarrow=False,
+        font=dict(color="#EF553B", size=11),
+    )
+
+    fig_gauge.update_layout(
+        height=130,
+        margin=dict(l=10, r=10, t=5, b=35),
+        xaxis=dict(visible=False, range=[-0.03 * max_gauge, max_gauge * 1.03]),
+        yaxis=dict(visible=False, range=[-0.3, bar_h + 0.25]),
+        template="plotly_dark",
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+
+    st.plotly_chart(fig_gauge, use_container_width=True, config={"displayModeBar": False})
+
+# Status message
+if true_leverage <= half_kelly:
+    st.info(f"**{status_label}** — {status_msg}")
+elif true_leverage <= kelly_optimal:
+    st.warning(f"**{status_label}** — {status_msg}")
+else:
+    st.error(f"**{status_label}** — {status_msg}")
 
 risk_cols = st.columns(3)
 with risk_cols[0]:
