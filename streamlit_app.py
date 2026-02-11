@@ -358,8 +358,8 @@ MICRO_CONTRACTS = [
     ("Micro AUD/USD", "M6A", 10000, "10,000 Australian dollars"),
     ("Micro USD/JPY", "M6J", 1250000, "1,250,000 Japanese yen (inverted)"),
     ("Micro USD/CAD", "M6C", 10000, "10,000 Canadian dollars (inverted)"),
-    ("Micro 10-Year Yield", "10Y", 1000, "$1,000 x yield index"),
-    ("Micro 2-Year Yield", "2YY", 1000, "$1,000 x yield index"),
+    ("Micro 10-Year Yield", "10Y", 1000, "\\$1,000 x yield index"),
+    ("Micro 2-Year Yield", "2YY", 1000, "\\$1,000 x yield index"),
 ]
 
 def _snap_to_tick(price, tick_inc):
@@ -1490,17 +1490,64 @@ if total_notional > 0 and nlv > 0 and sigma > 0:
         )
     with mc_cols[1]:
         mc_years = st.number_input(
-            "Horizon (years)", min_value=1, max_value=10, value=5, step=1,
+            "Horizon (years)", min_value=1, max_value=30, value=5, step=1,
             help="Simulation horizon in years.",
         )
     with mc_cols[2]:
-        _ruin_default = max(5.0, round(total_margin / nlv * 100, 0)) if nlv > 0 and total_margin > 0 else 25.0
+        _ruin_default = max(1.0, round(total_margin / nlv * 100, 0)) if nlv > 0 and total_margin > 0 else 25.0
         mc_ruin_pct = st.number_input(
             "Ruin threshold (% of NLV)",
-            min_value=5.0, max_value=100.0, value=_ruin_default,
-            step=5.0, format="%.0f",
+            min_value=1.0, max_value=100.0, value=_ruin_default,
+            step=1.0, format="%.0f",
             help="Equity level considered 'ruin' (default = margin call level as % of NLV, minimum 5%).",
         )
+
+    # Tail risk settings
+    tail_cols = st.columns(3)
+    with tail_cols[0]:
+        mc_distribution = st.radio(
+            "Return distribution",
+            ["Normal", "Student-t (fat tails)"],
+            horizontal=True,
+            help=(
+                "**Normal**: standard Gaussian returns. "
+                "**Student-t**: heavier tails — extreme moves are more likely, "
+                "matching real market behavior better."
+            ),
+        )
+    with tail_cols[1]:
+        if mc_distribution == "Student-t (fat tails)":
+            mc_df = st.number_input(
+                "Degrees of freedom (ν)",
+                min_value=3, max_value=30, value=5, step=1,
+                help=(
+                    "Lower = fatter tails. ν=3–5 matches typical equity markets. "
+                    "ν=5 is a common default. ν→∞ converges to Normal."
+                ),
+            )
+        else:
+            mc_df = 30  # effectively normal
+    with tail_cols[2]:
+        mc_jump_risk = st.checkbox(
+            "Enable jump risk",
+            value=False,
+            help=(
+                "Adds rare crash events (Poisson jumps). "
+                "On average ~2 jumps per year, each causing "
+                "a sudden -5% to -15% drop — simulating flash crashes, "
+                "black swan events, and gap risk."
+            ),
+        )
+        if mc_jump_risk:
+            mc_jump_intensity = st.slider(
+                "Avg jumps/year", min_value=0.5, max_value=5.0, value=2.0, step=0.5,
+                help="Average number of crash-type jump events per year.",
+            )
+            mc_jump_mean = st.slider(
+                "Avg jump size", min_value=-0.20, max_value=-0.01, value=-0.07, step=0.01,
+                format="%.0f%%" if False else "%.2f",
+                help="Mean jump magnitude (negative = crash). -0.07 = average 7% drop per jump.",
+            )
 
     mc_n_days = int(mc_years * 252)
     mc_leverage = current_leverage
@@ -1511,10 +1558,26 @@ if total_notional > 0 and nlv > 0 and sigma > 0:
 
     # Simulate
     rng = np.random.default_rng(seed=42)
-    z = rng.standard_normal((mc_n_days, mc_n_paths))
+
+    # Generate random shocks based on selected distribution
+    if mc_distribution == "Student-t (fat tails)":
+        # Student-t: scale so variance = 1 (same as Normal for fair comparison)
+        raw_t = rng.standard_t(df=mc_df, size=(mc_n_days, mc_n_paths))
+        # Variance of t(df) = df/(df-2), so scale down to unit variance
+        t_scale = np.sqrt(mc_df / (mc_df - 2)) if mc_df > 2 else 1.0
+        z = raw_t / t_scale
+    else:
+        z = rng.standard_normal((mc_n_days, mc_n_paths))
 
     # Underlying daily returns
     underlying_returns = mc_mu_daily + mc_sigma_daily * z
+
+    # Add jump risk if enabled
+    if mc_jump_risk:
+        jump_lambda = mc_jump_intensity / 252  # daily probability
+        jump_occurs = rng.poisson(jump_lambda, size=(mc_n_days, mc_n_paths))
+        jump_sizes = rng.normal(mc_jump_mean, abs(mc_jump_mean) * 0.5, size=(mc_n_days, mc_n_paths))
+        underlying_returns = underlying_returns + jump_occurs * jump_sizes
 
     # Leveraged portfolio daily returns: r_p = L * r_asset + (1 - L) * r_f
     port_returns = mc_leverage * underlying_returns + (1 - mc_leverage) * mc_rf_daily
@@ -1678,12 +1741,20 @@ if total_notional > 0 and nlv > 0 and sigma > 0:
     st.plotly_chart(fig_mc, use_container_width=True)
 
     with st.expander("Simulation Parameters"):
+        _dist_label = mc_distribution
+        if mc_distribution == "Student-t (fat tails)":
+            _dist_label = f"Student-t (ν={mc_df})"
+        _jump_label = "Off"
+        if mc_jump_risk:
+            _jump_label = f"On — {mc_jump_intensity:.1f} jumps/yr, avg size {mc_jump_mean:.0%}"
         st.markdown(f"""
 | Parameter | Value |
 |---|---|
 | Paths simulated | {mc_n_paths:,} |
 | Horizon | {mc_years} years ({mc_n_days:,} trading days) |
 | Leverage (current) | {mc_leverage:.2f}x |
+| Distribution | {_dist_label} |
+| Jump risk | {_jump_label} |
 | Expected return (μ) | {expected_return:.1f}% annual → {mc_mu_daily * 100:.4f}% daily |
 | Volatility (σ) | {annual_volatility:.1f}% annual → {mc_sigma_daily * 100:.3f}% daily |
 | Risk-free rate | {risk_free_rate:.2f}% annual → {mc_rf_daily * 100:.5f}% daily |
@@ -1925,6 +1996,8 @@ else:
         lines.append("=== MONTE CARLO SIMULATION ===")
         try:
             lines.append(f"Paths: {mc_n_paths:,} | Horizon: {mc_years} years | Leverage: {mc_leverage:.2f}x")
+            lines.append(f"Distribution: {mc_distribution}" + (f" (df={mc_df})" if mc_distribution == "Student-t (fat tails)" else ""))
+            lines.append(f"Jump Risk: {'On — ' + f'{mc_jump_intensity:.1f} jumps/yr, avg {mc_jump_mean:.0%}' if mc_jump_risk else 'Off'}")
             lines.append(f"Expected Geometric CAGR: {median_cagr:.2%} (5th pctl: {p5_cagr:.2%}, 95th: {p95_cagr:.2%})")
             lines.append(f"Expected Max Drawdown: {median_max_dd:.1%} (worst 5%: {p95_max_dd:.1%})")
             lines.append(f"Ruin Probability ({mc_years}yr): {ruin_prob:.2%} ({ruin_count:,} of {mc_n_paths:,} paths)")
@@ -1952,8 +2025,8 @@ to make futures trading more accessible to individual traders.
 **Why Do People Trade Futures?**
 
 - **Capital efficiency** — Futures require only a small margin deposit (often 3–12%
-  of notional value) to control a large position. A trader with $10,000 can get
-  exposure equivalent to $100,000+ in stocks, freeing up capital for other uses.
+  of notional value) to control a large position. A trader with \$10,000 can get
+  exposure equivalent to \$100,000+ in stocks, freeing up capital for other uses.
 - **Tax advantages (U.S.)** — Futures are taxed under the 60/40 rule (Section 1256):
   60% of gains are taxed as long-term capital gains and 40% as short-term,
   regardless of holding period. This can result in a lower blended tax rate
@@ -1962,7 +2035,7 @@ to make futures trading more accessible to individual traders.
   through Friday afternoon), allowing traders to react to overnight news and global
   events without waiting for the stock market to open.
 - **No pattern day trader rule** — Unlike stocks, futures have no PDT rule requiring
-  a $25,000 minimum to day trade. You can actively trade with a smaller account.
+  a \$25,000 minimum to day trade. You can actively trade with a smaller account.
 - **True portfolio hedging** — Futures let you hedge market exposure precisely. A
   long stock portfolio can be hedged by shorting index futures rather than selling
   positions and triggering taxable events.
@@ -1980,9 +2053,9 @@ to make futures trading more accessible to individual traders.
 > **Notional Value = Current Price x Contract Multiplier x Number of Contracts**
 
 For example, if the Micro E-mini S&P 500 (MES) is trading at 5,950 with a multiplier
-of $5, one contract has a notional value of:
+of \$5, one contract has a notional value of:
 
-> 5,950 x $5 = **$29,750**
+> 5,950 x \$5 = **\$29,750**
 
 **Why Does Notional Value Matter?**
 
@@ -2042,7 +2115,7 @@ roughly at the Half Kelly level — a reasonable, moderate position.
 
 If your portfolio contains multiple assets (futures, options, stocks), you can
 convert the total exposure to an SPX-equivalent dollar delta. This beta-weighted
-delta represents how much your portfolio would move for a $1 move in the S&P 500,
+delta represents how much your portfolio would move for a \$1 move in the S&P 500,
 giving a single measure of equity-like exposure to compare against Kelly.
 """)
 
