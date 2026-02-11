@@ -334,6 +334,67 @@ with col_controls_2:
     if st.button("Refresh Prices"):
         st.cache_data.clear()
         st.rerun()
+with col_controls_3:
+    margin_mode = st.radio(
+        "Margin calculation mode",
+        ["Exchange estimates", "Formula-based (auto)", "Custom (per contract)"],
+        horizontal=True,
+        help=(
+            "**Exchange estimates**: approximate maintenance margins from CME. "
+            "**Formula-based**: Notional × daily vol × Z₉₉ × buffer — auto-updates with VIX. "
+            "**Custom**: enter your own margin per contract."
+        ),
+    )
+
+# Margin mode parameters
+z_99 = 2.326
+daily_vol_formula = 0.0
+margin_buffer = 2.0
+custom_margins = {}
+
+if margin_mode == "Formula-based (auto)":
+    market_early = fetch_market_assumptions()
+    formula_cols = st.columns(3)
+    with formula_cols[0]:
+        margin_vol = st.number_input(
+            "Annualized vol for margin (%)",
+            min_value=1.0,
+            max_value=200.0,
+            value=market_early["implied_vol"],
+            step=0.5,
+            format="%.1f",
+            help="Default from VIX. Used: Notional × (vol/√252) × 2.326 × buffer.",
+        )
+    with formula_cols[1]:
+        margin_buffer = st.number_input(
+            "Buffer factor",
+            min_value=1.0,
+            max_value=5.0,
+            value=2.0,
+            step=0.1,
+            format="%.1f",
+            help="Exchanges typically set margins at ~2× the statistical 99% daily VaR.",
+        )
+    daily_vol_formula = (margin_vol / 100) / np.sqrt(252)
+    with formula_cols[2]:
+        st.info(
+            f"Margin ≈ Notional × {daily_vol_formula:.4%} × {z_99} × {margin_buffer:.1f}\n\n"
+            f"Daily vol: {margin_vol:.1f}% / √252 = {daily_vol_formula * 100:.3f}%"
+        )
+elif margin_mode == "Custom (per contract)":
+    with st.expander("Custom Margin per Contract", expanded=True):
+        custom_cols = st.columns(4)
+        for i, (name_c, symbol_c, _mult, _desc) in enumerate(MICRO_CONTRACTS):
+            spec_c = CONTRACT_SPECS.get(symbol_c, {})
+            with custom_cols[i % 4]:
+                custom_margins[symbol_c] = st.number_input(
+                    f"{symbol_c} margin ($)",
+                    min_value=0.0,
+                    value=float(spec_c.get("maint_margin", 0)),
+                    step=50.0,
+                    format="%.0f",
+                    key=f"custom_margin_{symbol_c}",
+                )
 
 st.divider()
 
@@ -410,7 +471,14 @@ for name, symbol, multiplier, description in MICRO_CONTRACTS:
     notional = price * multiplier * qty
     beta = spec.get("spx_beta", 0.0)
     beta_delta = notional * beta
-    contract_margin = spec.get("maint_margin", 0) * qty
+
+    # Margin calculation based on selected mode
+    if margin_mode == "Exchange estimates":
+        contract_margin = spec.get("maint_margin", 0) * qty
+    elif margin_mode == "Formula-based (auto)":
+        contract_margin = abs(notional) * daily_vol_formula * z_99 * margin_buffer if notional > 0 else 0.0
+    else:  # Custom (per contract)
+        contract_margin = custom_margins.get(symbol, spec.get("maint_margin", 0)) * qty
     total_notional += notional
     total_margin += contract_margin
     total_beta_weighted_delta += beta_delta
@@ -516,6 +584,15 @@ for name, symbol, multiplier, description in MICRO_CONTRACTS:
     else:
         exp_str = "—"
         dte_str = "—"
+    # Effective margin per contract based on margin mode
+    if margin_mode == "Exchange estimates":
+        eff_margin = spec.get("maint_margin", 0)
+    elif margin_mode == "Formula-based (auto)":
+        spec_price = live_prices.get(symbol, FALLBACK_PRICES[symbol])
+        one_notional = spec_price * multiplier
+        eff_margin = round(abs(one_notional) * daily_vol_formula * z_99 * margin_buffer, 0) if one_notional > 0 else 0
+    else:  # Custom
+        eff_margin = custom_margins.get(symbol, spec.get("maint_margin", 0))
     specs_data.append({
         "Contract": name,
         "Symbol": symbol,
@@ -523,7 +600,7 @@ for name, symbol, multiplier, description in MICRO_CONTRACTS:
         "SPX Beta": f"{spec.get('spx_beta', 0):.2f}",
         "Tick Size": spec.get("tick_size", "—"),
         "Tick Value": f"${spec.get('tick_value', 0):.2f}",
-        "Maint. Margin": f"${spec.get('maint_margin', 0):,.0f}",
+        "Maint. Margin": f"${eff_margin:,.0f}",
         "Next Expiration": exp_str,
         "DTE": dte_str,
     })
@@ -531,11 +608,22 @@ for name, symbol, multiplier, description in MICRO_CONTRACTS:
 specs_df = pd.DataFrame(specs_data)
 st.dataframe(specs_df, use_container_width=True, hide_index=True)
 
-st.caption(
-    "Maintenance margins are approximate values from CME Group and are updated periodically. "
-    "Actual margin requirements may differ based on your broker and account type. "
-    "Expiration dates are calculated based on standard CME contract cycle rules."
-)
+if margin_mode == "Exchange estimates":
+    st.caption(
+        "Maintenance margins are approximate values from CME Group and are updated periodically. "
+        "Actual margin requirements may differ based on your broker and account type. "
+        "Expiration dates are calculated based on standard CME contract cycle rules."
+    )
+elif margin_mode == "Formula-based (auto)":
+    st.caption(
+        f"Margins calculated via formula: Notional × {daily_vol_formula:.4%} × {z_99} × {margin_buffer:.1f}. "
+        "Formula margins approximate exchange requirements but may differ. Verify with your broker."
+    )
+else:
+    st.caption(
+        "Margins reflect your custom entries. "
+        "Expiration dates are calculated based on standard CME contract cycle rules."
+    )
 
 st.divider()
 
