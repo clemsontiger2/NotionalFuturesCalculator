@@ -126,6 +126,64 @@ def fetch_market_assumptions():
     return defaults
 
 
+@st.cache_data(ttl=300)
+def fetch_rolling_betas(window=60):
+    """Calculate rolling beta of each contract vs S&P 500.
+
+    Uses *window* trading days of daily returns. Returns a dict
+    mapping micro-futures symbol -> beta (float). Falls back to
+    the static CONTRACT_SPECS beta if data is insufficient.
+    """
+    static = {sym: spec.get("spx_beta", 0.0) for sym, spec in CONTRACT_SPECS.items()}
+    try:
+        # Build ticker list: all contract tickers + SPX benchmark
+        all_tickers = [info["ticker"] for info in YAHOO_TICKERS.values()]
+        all_tickers.append("^GSPC")
+        data = yf.download(
+            " ".join(all_tickers),
+            period="1y",
+            progress=False,
+        )
+        close = data["Close"]
+        if hasattr(close, "columns") is False:
+            return static
+
+        # SPX returns
+        spx = close["^GSPC"].dropna()
+        spx_ret = spx.pct_change().dropna()
+        if len(spx_ret) < window:
+            return static
+
+        spx_window = spx_ret.iloc[-window:]
+        spx_var = spx_window.var()
+        if spx_var == 0:
+            return static
+
+        betas = {}
+        for symbol, info in YAHOO_TICKERS.items():
+            try:
+                col = info["ticker"]
+                series = close[col].dropna()
+                if info.get("invert"):
+                    series = 1.0 / series
+                ret = series.pct_change().dropna()
+                # Align with SPX window
+                common = ret.index.intersection(spx_window.index)
+                if len(common) < window * 0.5:
+                    betas[symbol] = static.get(symbol, 0.0)
+                    continue
+                asset_ret = ret.loc[common]
+                spx_aligned = spx_window.loc[common]
+                cov = asset_ret.cov(spx_aligned)
+                var = spx_aligned.var()
+                betas[symbol] = round(float(cov / var), 2) if var > 0 else static.get(symbol, 0.0)
+            except Exception:
+                betas[symbol] = static.get(symbol, 0.0)
+        return betas
+    except Exception:
+        return static
+
+
 # ── Expiration date calculation ──
 
 def _nth_weekday(year, month, weekday, n):
@@ -259,7 +317,7 @@ def next_expiration(symbol, ref_date=None):
 # tick_value: dollar value of one tick
 # maint_margin: approximate maintenance margin per contract (subject to change)
 # asset_class: asset category for grouping
-# spx_beta: approximate beta relative to S&P 500 (for beta-weighted delta)
+# spx_beta: static fallback beta relative to S&P 500 (overridden by rolling beta when enabled)
 
 CONTRACT_SPECS = {
     "MES": {"tick_size": "0.25 pts",  "tick_inc": 0.25,    "tick_value": 1.25,  "maint_margin": 1500, "asset_class": "Equity",  "spx_beta": 1.00},
@@ -351,6 +409,37 @@ with col_controls_3:
             "**Custom**: enter your own margin per contract."
         ),
     )
+
+# Beta source toggle
+beta_cols = st.columns([1, 1, 2])
+with beta_cols[0]:
+    beta_source = st.radio(
+        "SPX Beta source",
+        ["Static", "Rolling (live)"],
+        horizontal=True,
+        help=(
+            "**Static**: hardcoded approximate betas from long-run estimates. "
+            "**Rolling**: calculates beta from recent price history via Yahoo Finance."
+        ),
+    )
+with beta_cols[1]:
+    if beta_source == "Rolling (live)":
+        beta_window = st.number_input(
+            "Lookback (trading days)",
+            min_value=20,
+            max_value=252,
+            value=60,
+            step=10,
+            help="Number of trading days for the rolling beta window. 60 ≈ 3 months.",
+        )
+    else:
+        beta_window = 60
+
+# Fetch or use static betas
+if beta_source == "Rolling (live)":
+    live_betas = fetch_rolling_betas(window=beta_window)
+else:
+    live_betas = {sym: spec.get("spx_beta", 0.0) for sym, spec in CONTRACT_SPECS.items()}
 
 # Margin mode parameters
 z_99 = 2.326
@@ -480,7 +569,7 @@ for _tab, _tab_cls in zip(asset_tabs, _CLASS_ORDER):
                 )
 
             notional = price * multiplier * qty
-            beta = spec.get("spx_beta", 0.0)
+            beta = live_betas.get(symbol, spec.get("spx_beta", 0.0))
             beta_delta = notional * beta
 
             # Margin calculation based on selected mode
@@ -607,7 +696,7 @@ for name, symbol, multiplier, description in MICRO_CONTRACTS:
         "Contract": name,
         "Symbol": symbol,
         "Class": spec.get("asset_class", "—"),
-        "SPX Beta": f"{spec.get('spx_beta', 0):.2f}",
+        "SPX Beta": f"{live_betas.get(symbol, spec.get('spx_beta', 0)):.2f}",
         "Tick Size": spec.get("tick_size", "—"),
         "Tick Value": f"${spec.get('tick_value', 0):.2f}",
         "Maint. Margin": f"${eff_margin:,.0f}",
