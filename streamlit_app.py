@@ -1,4 +1,7 @@
+from datetime import date, timedelta
+
 import numpy as np
+import pandas as pd
 import streamlit as st
 import yfinance as yf
 
@@ -122,6 +125,160 @@ def fetch_market_assumptions():
     return defaults
 
 
+# ── Expiration date calculation ──
+
+def _nth_weekday(year, month, weekday, n):
+    """Return the nth occurrence of a weekday in a given month (1-indexed)."""
+    first = date(year, month, 1)
+    # Days until the first occurrence of the target weekday
+    offset = (weekday - first.weekday()) % 7
+    d = first + timedelta(days=offset + 7 * (n - 1))
+    return d
+
+
+def _third_friday(year, month):
+    """3rd Friday of a given month."""
+    return _nth_weekday(year, month, 4, 3)  # 4 = Friday
+
+
+def _last_business_day(year, month):
+    """Last business day (Mon-Fri) of a given month."""
+    if month == 12:
+        d = date(year + 1, 1, 1) - timedelta(days=1)
+    else:
+        d = date(year, month + 1, 1) - timedelta(days=1)
+    while d.weekday() > 4:  # Sat=5, Sun=6
+        d -= timedelta(days=1)
+    return d
+
+
+def _last_friday(year, month):
+    """Last Friday of a given month."""
+    d = _last_business_day(year, month)
+    while d.weekday() != 4:
+        d -= timedelta(days=1)
+    return d
+
+
+def next_expiration(symbol, ref_date=None):
+    """Calculate the next expiration date for a micro futures contract.
+
+    Rules by contract type:
+    - Equity indices (MES, MNQ, MYM, M2K): Quarterly (H/M/U/Z), 3rd Friday
+    - MCL: Monthly, ~3 business days before 25th of prior month (simplified: 21st or prior biz day)
+    - MGC: Even months (G/J/M/Q/V/Z), 3rd-to-last business day of month prior
+    - SIL: Monthly, 3rd-to-last business day of month prior
+    - MHG: Monthly, 3rd-to-last business day of month prior
+    - MBT, MET: Monthly, last Friday of the contract month
+    - FX micros (M6E, M6B, M6A, M6J, M6C): Quarterly (H/M/U/Z), 3rd Friday (2 biz days prior for settlement)
+    - Yield micros (10Y, 2YY): Quarterly (H/M/U/Z), 3rd Friday
+
+    Simplified: we return the primary expiration date for the next available contract.
+    """
+    if ref_date is None:
+        ref_date = date.today()
+
+    quarterly_months = [3, 6, 9, 12]
+    even_months = [2, 4, 6, 8, 10, 12]
+
+    if symbol in ("MES", "MNQ", "MYM", "M2K", "M6E", "M6B", "M6A", "M6J", "M6C", "10Y", "2YY"):
+        # Quarterly: 3rd Friday of Mar, Jun, Sep, Dec
+        for offset in range(12):
+            m = ((ref_date.month - 1 + offset) % 12) + 1
+            y = ref_date.year + ((ref_date.month - 1 + offset) // 12)
+            if m in quarterly_months:
+                exp = _third_friday(y, m)
+                if exp > ref_date:
+                    return exp
+
+    elif symbol == "MCL":
+        # Monthly: trading terminates ~4 business days before the 25th of the month prior
+        # to the contract month. Simplified: we look for the next monthly cycle.
+        for offset in range(1, 14):
+            m = ((ref_date.month - 1 + offset) % 12) + 1
+            y = ref_date.year + ((ref_date.month - 1 + offset) // 12)
+            # Expiration is in the month *before* the contract month
+            exp_m = m - 1 if m > 1 else 12
+            exp_y = y if m > 1 else y - 1
+            d = date(exp_y, exp_m, 25)
+            # Back up 4 business days
+            biz = 0
+            while biz < 4:
+                d -= timedelta(days=1)
+                if d.weekday() < 5:
+                    biz += 1
+            if d > ref_date:
+                return d
+
+    elif symbol in ("MGC",):
+        # Even months: 3rd-to-last business day of the month prior to contract month
+        for offset in range(12):
+            m = ((ref_date.month - 1 + offset) % 12) + 1
+            y = ref_date.year + ((ref_date.month - 1 + offset) // 12)
+            if m in even_months:
+                exp_m = m - 1 if m > 1 else 12
+                exp_y = y if m > 1 else y - 1
+                d = _last_business_day(exp_y, exp_m)
+                for _ in range(2):  # go back 2 more biz days
+                    d -= timedelta(days=1)
+                    while d.weekday() > 4:
+                        d -= timedelta(days=1)
+                if d > ref_date:
+                    return d
+
+    elif symbol in ("SIL", "MHG"):
+        # Monthly: 3rd-to-last business day of the month prior to the contract month
+        for offset in range(1, 14):
+            m = ((ref_date.month - 1 + offset) % 12) + 1
+            y = ref_date.year + ((ref_date.month - 1 + offset) // 12)
+            exp_m = m - 1 if m > 1 else 12
+            exp_y = y if m > 1 else y - 1
+            d = _last_business_day(exp_y, exp_m)
+            for _ in range(2):
+                d -= timedelta(days=1)
+                while d.weekday() > 4:
+                    d -= timedelta(days=1)
+            if d > ref_date:
+                return d
+
+    elif symbol in ("MBT", "MET"):
+        # Monthly: last Friday of the contract month
+        for offset in range(13):
+            m = ((ref_date.month - 1 + offset) % 12) + 1
+            y = ref_date.year + ((ref_date.month - 1 + offset) // 12)
+            exp = _last_friday(y, m)
+            if exp > ref_date:
+                return exp
+
+    return None
+
+
+# ── Contract specifications ──
+# tick_size: minimum price increment
+# tick_value: dollar value of one tick
+# maint_margin: approximate maintenance margin per contract (subject to change)
+
+CONTRACT_SPECS = {
+    "MES": {"tick_size": "0.25 pts",  "tick_value": 1.25,  "maint_margin": 1500},
+    "MNQ": {"tick_size": "0.25 pts",  "tick_value": 0.50,  "maint_margin": 2100},
+    "MYM": {"tick_size": "1.0 pt",    "tick_value": 0.50,  "maint_margin": 1000},
+    "M2K": {"tick_size": "0.10 pts",  "tick_value": 0.50,  "maint_margin": 750},
+    "MCL": {"tick_size": "$0.01",     "tick_value": 1.00,  "maint_margin": 950},
+    "MGC": {"tick_size": "$0.10",     "tick_value": 1.00,  "maint_margin": 1550},
+    "SIL": {"tick_size": "$0.005",    "tick_value": 5.00,  "maint_margin": 1900},
+    "MHG": {"tick_size": "$0.0005",   "tick_value": 1.25,  "maint_margin": 700},
+    "MBT": {"tick_size": "$5.00",     "tick_value": 0.50,  "maint_margin": 5100},
+    "MET": {"tick_size": "$0.50",     "tick_value": 0.05,  "maint_margin": 350},
+    "M6E": {"tick_size": "$0.0001",   "tick_value": 1.25,  "maint_margin": 290},
+    "M6B": {"tick_size": "$0.0001",   "tick_value": 0.625, "maint_margin": 200},
+    "M6A": {"tick_size": "$0.0001",   "tick_value": 1.00,  "maint_margin": 180},
+    "M6J": {"tick_size": "¥0.01",     "tick_value": 1.25,  "maint_margin": 250},
+    "M6C": {"tick_size": "$0.0001",   "tick_value": 1.00,  "maint_margin": 160},
+    "10Y": {"tick_size": "0.01 pts",  "tick_value": 10.00, "maint_margin": 440},
+    "2YY": {"tick_size": "0.01 pts",  "tick_value": 10.00, "maint_margin": 340},
+}
+
+
 # Micro futures contract specifications:
 # (display_name, symbol, multiplier, description)
 MICRO_CONTRACTS = [
@@ -241,6 +398,46 @@ with summary_cols[2]:
         for _, symbol, *_ in MICRO_CONTRACTS
     )
     st.metric("Total Contracts", total_qty)
+
+st.divider()
+
+# ── Contract Specifications ──
+st.header("Contract Specifications")
+st.write(
+    "Tick size, tick value, maintenance margin, and next expiration for each contract. "
+    "Margins are approximate and subject to change by the exchange — always verify with your broker."
+)
+
+today = date.today()
+specs_data = []
+for name, symbol, multiplier, description in MICRO_CONTRACTS:
+    spec = CONTRACT_SPECS.get(symbol, {})
+    exp = next_expiration(symbol, today)
+    if exp:
+        days_to_exp = (exp - today).days
+        exp_str = exp.strftime("%b %d, %Y")
+        dte_str = f"{days_to_exp}d"
+    else:
+        exp_str = "—"
+        dte_str = "—"
+    specs_data.append({
+        "Contract": name,
+        "Symbol": symbol,
+        "Tick Size": spec.get("tick_size", "—"),
+        "Tick Value": f"${spec.get('tick_value', 0):.2f}",
+        "Maint. Margin": f"${spec.get('maint_margin', 0):,.0f}",
+        "Next Expiration": exp_str,
+        "DTE": dte_str,
+    })
+
+specs_df = pd.DataFrame(specs_data)
+st.dataframe(specs_df, use_container_width=True, hide_index=True)
+
+st.caption(
+    "Maintenance margins are approximate values from CME Group and are updated periodically. "
+    "Actual margin requirements may differ based on your broker and account type. "
+    "Expiration dates are calculated based on standard CME contract cycle rules."
+)
 
 st.divider()
 
