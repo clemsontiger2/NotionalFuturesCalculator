@@ -950,6 +950,9 @@ underlying asset having a positive return.
     st.markdown("### Leverage Impact on Your Portfolio")
     leverage_levels = [0.5, 0.75, 1.0, half_kelly, kelly_optimal, kelly_optimal * 1.5, kelly_optimal * 2.0]
     leverage_labels = ["0.50x", "0.75x", "1.00x", f"{half_kelly:.2f}x (½K)", f"{kelly_optimal:.2f}x (1K)", f"{kelly_optimal * 1.5:.2f}x (1.5K)", f"{kelly_optimal * 2:.2f}x (2K)"]
+    # Sort by leverage level so the table is always in ascending order
+    sorted_pairs = sorted(zip(leverage_levels, leverage_labels), key=lambda x: x[0])
+    leverage_levels, leverage_labels = zip(*sorted_pairs)
     lev_rows = []
     for lev, label in zip(leverage_levels, leverage_labels):
         g_arith = lev * mu_excess + (risk_free_rate / 100)
