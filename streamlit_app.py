@@ -2251,12 +2251,15 @@ Always verify current prices with your broker or exchange data provider.
 """)
 
 with st.expander("About the Kelly Criterion"):
-    if 0.7 <= half_kelly <= 1.3:
-        _kelly_narrative = "roughly at the Half Kelly level — a reasonable, moderate position."
-    elif 1.0 < half_kelly:
-        _kelly_narrative = f"at {1.0/kelly_optimal:.0%} of Full Kelly — a conservative position."
+    if kelly_optimal > 0:
+        if 0.7 <= half_kelly <= 1.3:
+            _kelly_narrative = "roughly at the Half Kelly level — a reasonable, moderate position."
+        elif 1.0 < half_kelly:
+            _kelly_narrative = f"at {1.0/kelly_optimal:.0%} of Full Kelly — a conservative position."
+        else:
+            _kelly_narrative = f"at {1.0/kelly_optimal:.0%} of Full Kelly — above Half Kelly, so consider reducing leverage."
     else:
-        _kelly_narrative = f"at {1.0/kelly_optimal:.0%} of Full Kelly — above Half Kelly, so consider reducing leverage."
+        _kelly_narrative = "not computable — Kelly requires positive volatility and excess return."
     st.markdown(f"""
 **What is the Kelly Criterion?**
 
