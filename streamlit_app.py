@@ -2280,11 +2280,11 @@ return and volatility parameters. In practice:
 
 **Example: S&P 500**
 
-Using approximate long-run parameters (10% return, 4.5% risk-free, 16% vol):
+Using approximate long-run parameters (10% return, 4.5% risk-free, 17.15% vol):
 
-> f* = (10% - 4.5%) / (16%)² = 5.5% / 2.56% = **2.15x**
+> f* = (10% - 4.5%) / (17.15%)² = 5.5% / 2.94% = **1.87x**
 >
-> Half Kelly = **1.07x**
+> Half Kelly = **0.93x**
 
 This suggests a portfolio fully invested in an S&P 500 index at 1x leverage is
 roughly at the Half Kelly level — a reasonable, moderate position.
