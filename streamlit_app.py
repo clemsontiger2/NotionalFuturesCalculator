@@ -2248,7 +2248,13 @@ Always verify current prices with your broker or exchange data provider.
 """)
 
 with st.expander("About the Kelly Criterion"):
-    st.markdown("""
+    if 0.7 <= half_kelly <= 1.3:
+        _kelly_narrative = "roughly at the Half Kelly level — a reasonable, moderate position."
+    elif 1.0 < half_kelly:
+        _kelly_narrative = f"at {1.0/kelly_optimal:.0%} of Full Kelly — a conservative position."
+    else:
+        _kelly_narrative = f"at {1.0/kelly_optimal:.0%} of Full Kelly — above Half Kelly, so consider reducing leverage."
+    st.markdown(f"""
 **What is the Kelly Criterion?**
 
 The Kelly Criterion, developed by John L. Kelly Jr. in 1956, determines the
@@ -2278,16 +2284,16 @@ return and volatility parameters. In practice:
 - Half Kelly captures ~75% of the growth rate with substantially less variance
 - Most professional allocators and practitioners use Half Kelly or less
 
-**Example: S&P 500**
+**Example with your current inputs:**
 
-Using approximate long-run parameters (10% return, 4.5% risk-free, 17.15% vol):
+Using your parameters ({expected_return:.1f}% return, {risk_free_rate:.1f}% risk-free, {annual_volatility:.1f}% vol):
 
-> f* = (10% - 4.5%) / (17.15%)² = 5.5% / 2.94% = **1.87x**
+> f* = ({expected_return:.1f}% - {risk_free_rate:.1f}%) / ({annual_volatility:.1f}%)² = {mu_excess*100:.1f}% / {sigma**2*100:.2f}% = **{kelly_optimal:.2f}x**
 >
-> Half Kelly = **0.93x**
+> Half Kelly = **{half_kelly:.2f}x**
 
-This suggests a portfolio fully invested in an S&P 500 index at 1x leverage is
-roughly at the Half Kelly level — a reasonable, moderate position.
+This means a portfolio fully invested in an S&P 500 index at 1x leverage is
+{_kelly_narrative}
 
 **SPX Delta / Beta-Weighted Delta**
 
